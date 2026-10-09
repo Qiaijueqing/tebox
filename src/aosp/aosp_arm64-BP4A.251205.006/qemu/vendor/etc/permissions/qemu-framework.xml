@@ -3,6 +3,14 @@
     <!-- Quickstep's search container requires the framework AppWidget service. -->
     <feature name="android.software.app_widgets"/>
 
+    <!-- The virtio NIC is real Ethernet; start the framework DHCP/network agent. -->
+    <feature name="android.hardware.ethernet"/>
+
+    <!-- Stationary virtual sensors supplied by the QEMU Sensors HAL. -->
+    <feature name="android.hardware.sensor.accelerometer"/>
+    <feature name="android.hardware.sensor.gyroscope"/>
+    <feature name="android.hardware.sensor.light"/>
+
     <!-- Soft dual-SIM radio (slot1 5G T-Mobile US, slot2 4G Vodafone DE). -->
     <feature name="android.hardware.telephony"/>
     <feature name="android.hardware.telephony.gsm"/>
@@ -33,5 +41,4 @@
     <feature name="android.hardware.nfc.hce"/>
     <feature name="android.hardware.nfc.any"/>
 </permissions>
-
 
