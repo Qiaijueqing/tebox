@@ -44,7 +44,7 @@ const struct drm_driver_descriptor descriptor_name = {         \
 #else
 
 #define DRM_DRIVER_DESCRIPTOR(driver, driconf, driconf_count, ...)      \
-   DEFINE_DRM_DRIVER_DESCRIPTOR(driver##_driver_descriptor, driver, driconf, driconf_count, pipe_##driver##_create_screen, __VA_ARGS__)
+   PUBLIC DEFINE_DRM_DRIVER_DESCRIPTOR(driver##_driver_descriptor, driver, driconf, driconf_count, pipe_##driver##_create_screen, __VA_ARGS__)
 
 #define DRM_DRIVER_DESCRIPTOR_STUB(driver)                              \
    static struct pipe_screen *                                          \

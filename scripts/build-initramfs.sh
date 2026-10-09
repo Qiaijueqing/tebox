@@ -13,6 +13,8 @@ STUB="$AOSP/qemu/vendor"
 OUT_IMG="$AOSP/images/initramfs.img"
 STAGE="$ROOT/out/initramfs-build-$VARIANT"
 
+python3 "$ROOT/scripts/check-runtime-inputs.py" "$BB" "$K/vendor_modules"
+
 [[ -x "$BB" ]] || { echo "missing aarch64 busybox at $BB" >&2; exit 1; }
 [[ -d "$K/vendor_modules" ]] || { echo "missing $K/vendor_modules" >&2; exit 1; }
 [[ -d "$STUB/etc/selinux" ]] || { echo "missing vendor stub $STUB" >&2; exit 1; }
@@ -21,7 +23,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"/{bin,dev,proc,sys,newroot,modules}
 cp -f "$BB" "$STAGE/bin/busybox"
 chmod +x "$STAGE/bin/busybox"
-for a in sh ls cat echo mount umount mkdir mknod insmod lsmod mdev ln sleep awk \
+for a in sh ls cat echo grep mount umount mkdir mknod insmod lsmod mdev ln sleep awk \
          chmod chown switch_root chroot mv rm cp setsid touch; do
   ln -sf busybox "$STAGE/bin/$a"
 done
@@ -37,6 +39,11 @@ if [[ -d "$INIT_DIR" ]]; then
   cp -f "$INIT_DIR/keystore2.rc" "$STAGE/overlays/" 2>/dev/null || true
   cp -f "$INIT_DIR/surfaceflinger.rc" "$STAGE/overlays/" 2>/dev/null || true
   cp -f "$INIT_DIR/vndkcorevariant.libraries.txt" "$STAGE/overlays/" 2>/dev/null || true
+  # Soft wificond (fixed fake SSIDs) — replaces system binary, no kernel wifi.
+  if [[ -x "$INIT_DIR/wificond" ]]; then
+    cp -f "$INIT_DIR/wificond" "$STAGE/overlays/wificond"
+    chmod 0755 "$STAGE/overlays/wificond"
+  fi
 fi
 
 cat > "$STAGE/init" <<'INIT'
@@ -144,6 +151,25 @@ if [ -f /overlays/vndkcorevariant.libraries.txt ]; then
   mount -o bind /overlays/vndkcorevariant.libraries.txt \
     /newroot/system/etc/vndkcorevariant.libraries.txt && \
     echo "[init] bound vndkcorevariant.libraries.txt"
+fi
+if [ -x /overlays/wificond ]; then
+  touch /newroot/system/bin/wificond 2>/dev/null || true
+  mount -o bind /overlays/wificond /newroot/system/bin/wificond && \
+    echo "[init] bound soft wificond"
+fi
+
+# GSI ships ro.adb.secure=1 (RSA dialog). For loopback TCP ADB, force insecure
+# adbd before second-stage init loads /system/build.prop.
+if grep -q 'androidboot.qemu_adb=1' /proc/cmdline 2>/dev/null && \
+   [ -f /newroot/system/build.prop ]; then
+  awk '
+    BEGIN { done=0 }
+    /^ro\.adb\.secure=/ { print "ro.adb.secure=0"; done=1; next }
+    { print }
+    END { if (!done) print "ro.adb.secure=0" }
+  ' /newroot/system/build.prop > /overlays/system.build.prop
+  mount -o bind /overlays/system.build.prop /newroot/system/build.prop && \
+    echo "[init] adb auth off (ro.adb.secure=0)"
 fi
 
 mkdir -p /newroot/proc /newroot/sys /newroot/dev

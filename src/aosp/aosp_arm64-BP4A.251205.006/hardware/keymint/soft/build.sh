@@ -25,11 +25,13 @@ for spec in "$KM:4" "$SC:1" "$SS:1"; do
 done
 # These are platform C++ interfaces: use the platform's __1 ABI and libc++,
 # not the NDK's __ndk1 STL. All shared libraries come from the same system.img.
-"$CC" -std=c++20 -O2 -D__ndk1=__1 -DBINDER_STABILITY_SUPPORT \
+"$CC" -std=c++20 -O2 -fno-rtti -D__ndk1=__1 -DBINDER_STABILITY_SUPPORT \
     -I"$HERE/include" -I"$GEN/include" -I"$ANDROID_HEADERS" \
     -I"$ROOT/thirdparty/system-keymaster/ng/include" \
-    "$HERE/service.cpp" -nostdlib++ -L"$LIBS" -Wl,-rpath,/system/lib64 \
-    -lkeymint_fake_latest -lbinder_ndk -llog -lc++ \
+    -I"$ROOT/thirdparty/system-keymaster/include" \
+    "$HERE/service.cpp" "$HERE/persistent_storage.cpp" \
+    -nostdlib++ -L"$LIBS" -Wl,-rpath,/system/lib64 -Wl,--export-dynamic \
+    -lkeymint_fake_latest -lkeymaster_portable -lbinder_ndk -llog -lc++ \
     -l:android.hardware.security.keymint-V4-ndk.so \
     -l:android.hardware.security.secureclock-V1-ndk.so \
     -l:android.hardware.security.sharedsecret-V1-ndk.so \

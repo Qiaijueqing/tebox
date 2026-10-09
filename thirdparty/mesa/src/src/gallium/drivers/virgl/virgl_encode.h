@@ -125,6 +125,14 @@ int virgl_encode_clear_texture(struct virgl_context *ctx,
                                const struct pipe_box *box,
                                const void *data);
 
+int virgl_encode_resource_inline_write(struct virgl_context *ctx,
+                                       struct virgl_resource *res,
+                                       unsigned level,
+                                       const struct pipe_box *box,
+                                       const void *data,
+                                       unsigned stride,
+                                       uintptr_t layer_stride);
+
 int virgl_encode_bind_object(struct virgl_context *ctx,
                             uint32_t handle, uint32_t object);
 int virgl_encode_delete_object(struct virgl_context *ctx,

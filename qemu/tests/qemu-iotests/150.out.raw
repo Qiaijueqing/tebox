@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:1691767ee50476de17dc27016a1642c3cc454e914bc7d2bec8e88912d12c7cb8
-size 284
+QA output created by 150
+
+=== Mapping sparse conversion ===
+
+Offset          Length          File
+0               0x1000          TEST_DIR/t.IMGFMT
+
+=== Mapping non-sparse conversion ===
+
+Offset          Length          File
+0               0x100000        TEST_DIR/t.IMGFMT
+*** done

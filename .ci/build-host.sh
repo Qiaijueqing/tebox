@@ -4,9 +4,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 source scripts/env.sh
 [[ "$HOST_ARCH" == arm64 ]] || { echo "Expected an ARM64 host, got $HOST_ID" >&2; exit 1; }
-bash scripts/build-libepoxy.sh
-bash scripts/build-virglrenderer.sh
-QEMU_INSTALL=1 bash scripts/build-qemu.sh
+bash .ci/build-libepoxy.sh
+bash .ci/build-virglrenderer.sh
+QEMU_INSTALL=1 bash .ci/build-qemu.sh
 # The installed binary is linked to the project libepoxy and VirGL, which
 # are not on the system library path. Same search path as scripts/boot-qemu.sh.
 if [[ "$HOST_OS" == darwin ]]; then

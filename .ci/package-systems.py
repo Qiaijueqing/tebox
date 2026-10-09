@@ -5,7 +5,7 @@ Requires dist/qemu-gki-<host>.tar.gz from .ci/package-host.py. Rebuilds
 vendor.img and initramfs.img, then writes:
 
   dist/tebox-<variant>-<host>.tar.gz
-      QEMU plus src/aosp/<variant> and src/kernel/<id>, including system.img.
+      QEMU plus src/aosp/<variant> and src/kernel/<id>, without system.img.
       ./run boots the only system, or offers the lunch menu when several
       archives have been extracted on top of each other.
 
@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LFS_MARKER = b'version https://git-lfs.github.com/spec/v1'
+POINTER_MARKER = b'version https://git-lfs.github.com/spec/v1'
 
 
 def host_id() -> str:
@@ -42,8 +42,8 @@ def require_blob(path: Path) -> None:
     if not path.is_file():
         raise SystemExit(f'missing {path}')
     with path.open('rb') as handle:
-        if handle.read(len(LFS_MARKER)) == LFS_MARKER:
-            raise SystemExit(f'{path} is a Git LFS pointer; fetch the real file first')
+        if handle.read(len(POINTER_MARKER)) == POINTER_MARKER:
+            raise SystemExit(f'{path} is a stale pointer file; fetch the real file first')
 
 
 def variants() -> list[str]:
@@ -66,12 +66,13 @@ def build_images(names: list[str]) -> None:
         variant = ROOT / 'src/aosp' / name
         kernel_id = (variant / 'KERNEL').read_text().strip()
         kernel = ROOT / 'src/kernel' / kernel_id
-        require_blob(variant / 'images' / 'system.img')
-        require_blob(kernel / 'gki' / 'Image')
         modules = sorted((kernel / 'vendor_modules').glob('*.ko'))
         if not modules:
             raise SystemExit(f'missing kernel modules in {kernel / "vendor_modules"}')
         require_blob(modules[0])
+        subprocess.run(['bash', str(ROOT / 'scripts/ensure-guest-downloads.sh'), name],
+                       cwd=ROOT, check=True)
+        require_blob(kernel / 'gki' / 'Image')
         subprocess.run(['bash', str(ROOT / 'scripts/ensure-runtime-imgs.sh'), name],
                        cwd=ROOT, check=True)
         require_blob(variant / 'images' / 'vendor.img')
@@ -106,7 +107,8 @@ def boot_readme(host: str) -> str:
         f'same host ({host}) into this directory to add its system.\n'
         '\n'
         'Layout matches the repository: src/aosp/<variant>/ and src/kernel/<id>/.\n'
-        'This archive includes system.img, vendor.img and initramfs.img.\n'
+        'system.img and gki/Image download from mirror.opencecs.com when missing.\n'
+        'The archive includes vendor.img and initramfs.img.\n'
         '\n'
         'The first boot creates out/test-<variant>/userdata.img and needs mke2fs\n'
         '(macOS: brew install e2fsprogs; Linux: e2fsprogs). macOS uses HVF.\n'
@@ -168,20 +170,28 @@ def pack_bootable(names: list[str], host: str, qemu: Path) -> list[Path]:
                 add_tree(tar, qemu, bundle)
                 guest = {
                     variant / 'KERNEL': f'{bundle}/src/aosp/{name}/KERNEL',
-                    variant / 'images' / 'system.img': f'{bundle}/src/aosp/{name}/images/system.img',
                     variant / 'images' / 'vendor.img': f'{bundle}/src/aosp/{name}/images/vendor.img',
                     variant / 'images' / 'initramfs.img': f'{bundle}/src/aosp/{name}/images/initramfs.img',
                     variant / 'qemu' / 'cmdline' / 'boot': f'{bundle}/src/aosp/{name}/qemu/cmdline/boot',
-                    ROOT / 'src/kernel' / kernel_id / 'gki' / 'Image':
-                        f'{bundle}/src/kernel/{kernel_id}/gki/Image',
+                    ROOT / 'src/kernel' / kernel_id / 'vendor_modules':
+                        f'{bundle}/src/kernel/{kernel_id}/vendor_modules',
                     ROOT / 'scripts' / 'boot-qemu.sh': f'{bundle}/scripts/boot-qemu.sh',
                     ROOT / 'scripts' / 'env.sh': f'{bundle}/scripts/env.sh',
+                    ROOT / 'scripts' / 'ensure-guest-downloads.sh':
+                        f'{bundle}/scripts/ensure-guest-downloads.sh',
+                    ROOT / 'scripts' / 'ensure-runtime-imgs.sh':
+                        f'{bundle}/scripts/ensure-runtime-imgs.sh',
+                    ROOT / 'scripts' / 'check-runtime-inputs.py': f'{bundle}/scripts/check-runtime-inputs.py',
+                    ROOT / '.ci' / 'guest.lock.json': f'{bundle}/.ci/guest.lock.json',
                 }
                 for source, arcname in guest.items():
-                    require_blob(source)
-                    mode = 0o755 if source.name.endswith('.sh') else None
-                    add_file(tar, source, arcname, mode)
-                add_file(tar, ROOT / 'scripts' / 'run-packed.sh', f'{bundle}/run', 0o755)
+                    if source.is_dir():
+                        add_tree(tar, source, arcname)
+                    else:
+                        require_blob(source)
+                        mode = 0o755 if source.name.endswith('.sh') else None
+                        add_file(tar, source, arcname, mode)
+                add_file(tar, ROOT / 'run', f'{bundle}/run', 0o755)
                 add_file(tar, readme, f'{bundle}/README.txt')
         written.append(archive_path)
         print(archive_path)

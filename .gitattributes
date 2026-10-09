@@ -1,7 +1,4 @@
-# Large boot/runtime binaries (install Git LFS before commit).
-*.img filter=lfs diff=lfs merge=lfs -text
-*.raw filter=lfs diff=lfs merge=lfs -text
-*.ko filter=lfs diff=lfs merge=lfs -text
-**/gki/Image filter=lfs diff=lfs merge=lfs -text
-**/gki/Image.prev filter=lfs diff=lfs merge=lfs -text
+# Runtime inputs (downloaded by ./run when missing): system.img, gki/Image — see .gitignore.
+# Kernel modules (*.ko) under src/kernel/*/vendor_modules/ are tracked as normal Git blobs.
+# Third-party reference tree: the gradle wrapper zip stays an LFS pointer.
 **/gradle/wrapper/gradle-*-bin.zip filter=lfs diff=lfs merge=lfs -text

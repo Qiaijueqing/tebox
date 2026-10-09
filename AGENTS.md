@@ -7,13 +7,15 @@ repository setup, commits, pushes and publication require an explicit request.
 ## Source and build boundaries
 
 - Tracked in git: `qemu/`, `thirdparty/`, `prebuilts/` (host + android-arm64),
-  `toolchains/`, `src/` including each variant’s GSI `images/system.img`,
+  `toolchains/`, `src/` including each variant’s runtime GSI metadata and
+  `images/` support files (the large `system.img` is downloaded on demand),
   `qemu/vendor`, `prebuilts/gsi-lib64/`, `hardware/`, KeyMint `keybox.xml`,
-  `.ci/`, `.ai/`, scripts and docs. Large binaries use Git LFS (`.gitattributes`).
+  `.ci/`, `.ai/`, scripts and docs. Kernel modules (`*.ko`) are tracked in Git;
+  `system.img` and `gki/Image` download at runtime from mirror.opencecs.com.
   Do **not** commit rebuildable `images/vendor.img` or `images/initramfs.img`
   (produced by `./run` / `build-vendor-img.sh` / `build-initramfs.sh`).
 - Ignored build products only: `out/`, `dist/`, `downloads/` (CI download cache),
-  `archives/` (legacy; unused), `src/aosp/*/images/{vendor,initramfs}.img`,
+  `archives/` (legacy; unused), `src/aosp/*/images/{system,vendor,initramfs}.img`,
   plus local `.env` / editor settings.
 - Variant-specific GSI artifacts belong under `src/aosp/<variant>/images/`, not
   under shared `prebuilts/gsi/`. Host QEMU/VirGL and guest Mesa/libdrm installs

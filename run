@@ -96,5 +96,6 @@ fi
 export VARIANT="$pick"
 echo "==> lunch $VARIANT"
 
+bash "$ROOT/scripts/ensure-guest-downloads.sh" "$VARIANT"
 bash "$ROOT/scripts/ensure-runtime-imgs.sh" "$VARIANT"
 exec bash "$ROOT/scripts/boot-qemu.sh" "$VARIANT"

@@ -1,4 +1,8 @@
 ro.hardware=ranchu
+# The launcher exposes ADB only on the loopback TCP forward.  Keep the
+# bring-up transport usable without an interactive RSA confirmation.
+ro.adb.secure=0
+ro.debuggable=1
 # This QEMU device runs a single 64-bit zygote.
 ro.zygote=zygote64
 ro.product.cpu.abilist=arm64-v8a

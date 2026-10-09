@@ -1,3 +1,18 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:303f3fc9db6b319a1b8e0790fea52b2dd106c1c18551d477794b65df232ae903
-size 626
+on early-init
+    setprop ro.hardware ranchu
+    setprop ro.zygote zygote64
+
+# KeyMint lives on vendor tmpfs; declare + start from hardware rc (system-visible).
+service vendor.keymint-default /vendor/bin/hw/android.hardware.security.keymint-service
+    class early_hal
+    user nobody
+    group nobody
+    interface aidl android.hardware.security.keymint.IKeyMintDevice/default
+    interface aidl android.hardware.security.secureclock.ISecureClock/default
+    interface aidl android.hardware.security.sharedsecret.ISharedSecret/default
+
+on early-boot
+    start vendor.keymint-default
+
+on boot
+    start vendor.keymint-default

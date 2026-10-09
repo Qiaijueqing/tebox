@@ -135,7 +135,11 @@ if with_drm_renderers
   conf_data.set('ENABLE_DRM', 1)
 endif
 
-libdrm_dep = dependency('libdrm', version : '>=2.4.50', required: with_drm_renderers or get_option('video'))
+# The macOS VideoToolbox backend does not need a DRM device. Linux VA-API
+# video still requires libdrm for the render-node display.
+libdrm_dep = dependency('libdrm', version : '>=2.4.50',
+                        required: with_drm_renderers or
+                                  (get_option('video') and not with_host_darwin))
 libdrm_amdgpu_dep = dependency('libdrm_amdgpu', version : '>=2.4.121', required: with_drm_amdgpu)
 conf_data.set('ENABLE_LIBDRM', libdrm_dep.found())
 drm_uapi_dep = declare_dependency(
@@ -399,12 +403,19 @@ endif
 
 with_video = get_option('video')
 if with_video
-  if not have_egl
+  if not have_egl and not with_host_darwin
      error('video require EGL, but it is not available')
   endif
   conf_data.set('ENABLE_VIDEO', 1)
-  libva_dep = dependency('libva')
-  libvadrm_dep = dependency('libva-drm')
+  if with_host_darwin
+     conf_data.set('ENABLE_VIDEO_VT', 1)
+     videotoolbox_dep = dependency('appleframeworks',
+                                   modules: ['CoreFoundation', 'CoreMedia',
+                                             'CoreVideo', 'VideoToolbox'])
+  else
+     libva_dep = dependency('libva')
+     libvadrm_dep = dependency('libva-drm')
+  endif
 endif
 
 with_tests = get_option('tests')

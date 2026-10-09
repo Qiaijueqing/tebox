@@ -88,5 +88,14 @@ struct pipe_video_buffer *
 virgl_video_create_buffer(struct pipe_context *ctx,
                           const struct pipe_video_buffer *tmpl);
 
-#endif /* VIRGL_VIDEO_H */
+/* Create a video buffer around an already imported resource.  The resource
+ * reference is transferred to the returned buffer.  This is used by the
+ * Codec2 bridge for dmabuf-backed surface input, avoiding a CPU readback and
+ * re-upload on every frame. */
+struct pipe_video_buffer *
+virgl_video_create_buffer_from_resource(struct pipe_context *ctx,
+                                        struct pipe_resource *resource,
+                                        enum pipe_format format,
+                                        unsigned width, unsigned height);
 
+#endif /* VIRGL_VIDEO_H */

@@ -29,7 +29,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install PyYAML==6.0.3
       - run: python .ci/validate.py
-      - run: python scripts/package-skills.py
+      - run: python .ci/package-skills.py
       - uses: actions/upload-artifact@v4
         with:
           name: project-ai-skills
@@ -55,7 +55,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

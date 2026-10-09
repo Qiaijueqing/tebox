@@ -20,10 +20,11 @@ smallest necessary changes.
    - Prefer official `aosp_arm64` user/userdebug GSI. Note sparse vs raw; convert
      with `simg2img` when needed.
    - Update `src/aosp/<variant>/FETCHED_FROM.txt` and
-     `.ci/guest.lock.json` (`gsi.url`, `gsi.sha256`, `variant` if renamed).
+     `.ci/guest.lock.json` (`system.url`, `system.sha256`, `variant` if renamed).
 
 2. **Place the image**
-   - Install as `src/aosp/<variant>/images/system.img` (tracked via Git LFS).
+   - Install as `src/aosp/<variant>/images/system.img` for local testing; the
+     runtime downloader fills this path when it is absent.
    - Extract link libs with `bash scripts/extract-gsi-libs.sh` into
      `prebuilts/gsi-lib64/`.
    - Stop any running QEMU before replacing images. Use `SNAPSHOT=1` for trials.

@@ -800,6 +800,54 @@ int virgl_encode_shader_state(struct virgl_context *ctx,
 }
 
 
+int virgl_encode_resource_inline_write(struct virgl_context *ctx,
+                                       struct virgl_resource *res,
+                                       unsigned level,
+                                       const struct pipe_box *box,
+                                       const void *data,
+                                       unsigned stride,
+                                       uintptr_t layer_stride)
+{
+   const uint8_t *src = (const uint8_t *)data;
+   const unsigned rows_per_chunk = 32;
+   unsigned depth = MAX2(box->depth, 1);
+   unsigned row;
+
+   for (unsigned z = 0; z < depth; z++) {
+      const uint8_t *layer = src + (layer_stride ? (uintptr_t)z * layer_stride :
+                                    (uintptr_t)z * stride * box->height);
+      for (row = 0; row < (unsigned)box->height; ) {
+         unsigned rows = MIN2(rows_per_chunk, (unsigned)box->height - row);
+         unsigned bytes = rows * stride;
+         unsigned words = (bytes + 3) / 4;
+         unsigned length = 11 + words;
+         struct pipe_box chunk = *box;
+
+         if (ctx->cbuf->cdw + length + 1 >= VIRGL_ENCODE_MAX_DWORDS)
+            ctx->base.flush(&ctx->base, NULL, 0);
+
+         chunk.y += row;
+         chunk.height = rows;
+         virgl_encoder_write_cmd_dword(ctx,
+            VIRGL_CMD0(VIRGL_CCMD_RESOURCE_INLINE_WRITE, 0, length));
+         virgl_encoder_write_res(ctx, res);
+         virgl_encoder_write_dword(ctx->cbuf, level);
+         virgl_encoder_write_dword(ctx->cbuf, 0);
+         virgl_encoder_write_dword(ctx->cbuf, stride);
+         virgl_encoder_write_dword(ctx->cbuf, layer_stride ? layer_stride : stride * box->height);
+         virgl_encoder_write_dword(ctx->cbuf, chunk.x);
+         virgl_encoder_write_dword(ctx->cbuf, chunk.y);
+         virgl_encoder_write_dword(ctx->cbuf, chunk.z + z);
+         virgl_encoder_write_dword(ctx->cbuf, chunk.width);
+         virgl_encoder_write_dword(ctx->cbuf, chunk.height);
+         virgl_encoder_write_dword(ctx->cbuf, 1);
+         virgl_encoder_write_block(ctx->cbuf, layer + (uintptr_t)row * stride, bytes);
+         row += rows;
+      }
+   }
+   return 0;
+}
+
 int virgl_encode_clear(struct virgl_context *ctx,
                       unsigned buffers,
                       const union pipe_color_union *color,

@@ -19,6 +19,7 @@
 #include "hw/virtio/virtio-gpu.h"
 #include "hw/virtio/virtio-gpu-bswap.h"
 #include "hw/virtio/virtio-gpu-pixman.h"
+#include "qemu/drm.h"
 
 #include "ui/egl-helpers.h"
 
@@ -1373,6 +1374,23 @@ static int virgl_make_context_current(void *opaque, int scanout_idx,
     return qemu_console_gl_ctx_make_current(g->parent_obj.scanout[scanout_idx].con, qctx);
 }
 
+/*
+ * VirGL video uses the host Mesa VA-API implementation.  The renderer needs
+ * a DRM render node in addition to the EGL display used for normal 3D.  QEMU
+ * does not otherwise own a DRM device, so open one lazily when the optional
+ * video API is compiled in.  VIRGL_VIDEO_DRM_DEVICE selects a specific node;
+ * qemu_drm_rendernode_open() otherwise picks the first usable render node.
+ */
+#ifdef VIRGL_RENDERER_USE_VIDEO
+static int virgl_get_drm_fd(void *opaque)
+{
+    const char *rendernode = getenv("VIRGL_VIDEO_DRM_DEVICE");
+
+    (void)opaque;
+    return qemu_drm_rendernode_open(rendernode && *rendernode ? rendernode : NULL);
+}
+#endif
+
 static struct virgl_renderer_callbacks virtio_gpu_3d_cbs = {
 #if VIRGL_VERSION_MAJOR >= 1
     .version             = 3,
@@ -1385,6 +1403,9 @@ static struct virgl_renderer_callbacks virtio_gpu_3d_cbs = {
     .make_current        = virgl_make_context_current,
 #if VIRGL_VERSION_MAJOR >= 1
     .write_context_fence = virgl_write_context_fence,
+#endif
+#ifdef VIRGL_RENDERER_USE_VIDEO
+    .get_drm_fd          = virgl_get_drm_fd,
 #endif
 };
 
@@ -1514,6 +1535,12 @@ static int virtio_gpu_virgl_init(VirtIOGPU *g)
             return -EINVAL;
         }
     }
+#endif
+#ifdef VIRGL_RENDERER_USE_VIDEO
+    /* Enable the VirGL video protocol when the renderer was built with its
+     * unstable video API.  With no host DRM render node the renderer keeps
+     * normal 3D working and simply reports no video caps. */
+    flags |= VIRGL_RENDERER_USE_VIDEO;
 #endif
 
     ret = virgl_renderer_init(g, flags, &virtio_gpu_3d_cbs);

@@ -1,8 +1,12 @@
 {
   "variant": "aosp_arm64-BP4A.251205.006",
-  "gsi": {
-    "url": "https://dl.google.com/developers/android/baklava/images/gsi/aosp_arm64-exp-BP4A.251205.006-14401865-2171cf0e.zip",
-    "sha256": "2171cf0ea849f8eaa399f4bad2165fab80b0fd9e98d37723a705dca6c41e49ea"
+  "system": {
+    "url": "https://mirror.opencecs.com/f/GSI/aosp_arm64-BP4A.251205.006/system.img",
+    "sha256": "c89fee2aa00f0ab3e06221bcc915fdda2bb58aabcc4d007e3ac30044b5b76cb2"
+  },
+  "kernel": {
+    "url": "https://mirror.opencecs.com/f/GKI/gki-6.1-android14-gsi/Image",
+    "sha256": "46788c14e2a995caabe0a3d41dd3d78241a95a77d52d7ee65ac10489409aba4e"
   },
   "busybox": {
     "url": "https://busybox.net/downloads/busybox-1.37.0.tar.bz2",
@@ -12,7 +16,6 @@
   "build_tools": "36.1.0",
   "kernel_id": "gki-6.1-android14-gsi",
   "kernel_files": {
-    "gki/Image": "46788c14e2a995caabe0a3d41dd3d78241a95a77d52d7ee65ac10489409aba4e",
     "vendor_modules/drm_dma_helper.ko": "f535ab522a9d654625344ed887bb594ff4de4c50b1e47c6a3bd49d4c00cd3752",
     "vendor_modules/failover.ko": "826dfa9e924c9853aa066c8fca508c095d29c5faf859b079e8b571948ea9bb3b",
     "vendor_modules/net_failover.ko": "b9763bbc29d681fbb9af12f7017d724775d95de47a3b3c2d42a80b50ff91db75",

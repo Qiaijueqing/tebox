@@ -1,93 +1,57 @@
 #!/usr/bin/env bash
-# Soft NDK WiFi HAL (IWifi AIDL v2) with a simulated chip + STA iface.
-# Scan list is injected at runtime via cmd wifi add-fake-scan (no kernel/nl80211).
+# Soft NDK WiFi HAL (IWifi AIDL v2) — full frozen API + fixed fake scan catalog.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../../../../.." && pwd)
 source "$ROOT/scripts/env.sh"
 HI="$ROOT/thirdparty/hardware-interfaces"
 FROZEN="$HI/wifi/aidl/aidl_api/android.hardware.wifi/2"
+COMMON_WIFI="$HI/wifi/common/aidl/aidl_api/android.hardware.wifi.common/1"
+COMMON="$HI/common/aidl/aidl_api/android.hardware.common/2"
 OUT="$ROOT/out/wifi-stub"
 GEN="$ROOT/out/wifi-ndk-gen"
-TRIM="$ROOT/out/wifi-aidl-trim"
 CC="$NDK/toolchains/llvm/prebuilt/$NDK_HOST_TAG/bin/aarch64-linux-android34-clang++"
 HASH=$(cat "$FROZEN/.hash")
 [[ -x "$CC" && -x "$AIDL" ]] || { echo 'missing NDK/aidl' >&2; exit 1; }
+[[ -d "$FROZEN/android" ]] || { echo "missing $FROZEN" >&2; exit 1; }
 
-rm -rf "$GEN" "$OUT/obj" "$TRIM"
-mkdir -p "$GEN/src" "$GEN/include" "$OUT/bin" "$OUT/obj"
-mkdir -p "$TRIM/android/hardware/wifi"
+rm -rf "$GEN" "$OUT/obj" "$OUT/aidl-trim"
+mkdir -p "$GEN/src" "$GEN/include" "$OUT/bin" "$OUT/obj" "$OUT/aidl-trim"
 
-cp "$FROZEN/android/hardware/wifi/IWifi.aidl" "$TRIM/android/hardware/wifi/"
-cp "$FROZEN/android/hardware/wifi/IWifiEventCallback.aidl" "$TRIM/android/hardware/wifi/"
-cp "$FROZEN/android/hardware/wifi/WifiStatusCode.aidl" "$TRIM/android/hardware/wifi/"
-cp "$FROZEN/android/hardware/wifi/IfaceConcurrencyType.aidl" "$TRIM/android/hardware/wifi/"
-
-cat > "$TRIM/android/hardware/wifi/IWifiStaIfaceEventCallback.aidl" <<'EOF'
-package android.hardware.wifi;
+# Stage AIDL trees and inject opaque android.os.PersistableBundle for OuiKeyedData.
+TRIM="$OUT/aidl-trim"
+cp -a "$COMMON" "$TRIM/common"
+cp -a "$COMMON_WIFI" "$TRIM/wifi-common"
+cp -a "$FROZEN" "$TRIM/wifi"
+mkdir -p "$TRIM/wifi-common/android/os"
+cat > "$TRIM/wifi-common/android/os/PersistableBundle.aidl" <<'EOF'
+package android.os;
 @VintfStability
-interface IWifiStaIfaceEventCallback {}
+parcelable PersistableBundle {}
 EOF
 
-cat > "$TRIM/android/hardware/wifi/IWifiStaIface.aidl" <<'EOF'
-package android.hardware.wifi;
-@VintfStability
-interface IWifiStaIface {
-  String getName();
-  int getFeatureSet();
-  byte[6] getFactoryMacAddress();
-  void setMacAddress(in byte[6] mac);
-  void setScanMode(in boolean enable);
-  void registerEventCallback(in android.hardware.wifi.IWifiStaIfaceEventCallback callback);
-}
-EOF
+PACKAGES=("$TRIM/common" "$TRIM/wifi-common" "$TRIM/wifi")
+INCLUDES=()
+for package in "${PACKAGES[@]}"; do
+  [[ -s "$package/.hash" ]] || { echo "missing $package" >&2; exit 1; }
+  INCLUDES+=(-I "$package")
+done
 
-cat > "$TRIM/android/hardware/wifi/IWifiChipEventCallback.aidl" <<'EOF'
-package android.hardware.wifi;
-@VintfStability
-interface IWifiChipEventCallback {
-  oneway void onChipReconfigureFailure(in android.hardware.wifi.WifiStatusCode status);
-  oneway void onChipReconfigured(in int modeId);
-}
-EOF
+for package in "${PACKAGES[@]}"; do
+  sources=()
+  while IFS= read -r source; do sources+=("$source"); done < <(find "$package" -name '*.aidl' | sort)
+  case "$package" in
+    */wifi-common) ver=$(basename "$COMMON_WIFI"); hash=$(cat "$COMMON_WIFI/.hash") ;;
+    */wifi) ver=$(basename "$FROZEN"); hash=$(cat "$FROZEN/.hash") ;;
+    */common) ver=$(basename "$COMMON"); hash=$(cat "$COMMON/.hash") ;;
+    *) echo "unknown package $package" >&2; exit 1 ;;
+  esac
+  "$AIDL" --lang=ndk --structured --stability=vintf --min_sdk_version=34 \
+    --version="$ver" --hash="$hash" \
+    -o "$GEN/src" -h "$GEN/include" "${INCLUDES[@]}" "${sources[@]}"
+done
 
-cat > "$TRIM/android/hardware/wifi/IWifiChip.aidl" <<'EOF'
-package android.hardware.wifi;
-@VintfStability
-interface IWifiChip {
-  void configureChip(in int modeId);
-  @PropagateAllowBlocking android.hardware.wifi.IWifiStaIface createStaIface();
-  android.hardware.wifi.IWifiChip.ChipMode[] getAvailableModes();
-  int getFeatureSet();
-  int getId();
-  int getMode();
-  void registerEventCallback(in android.hardware.wifi.IWifiChipEventCallback callback);
-  void removeStaIface(in String ifname);
-  void setCountryCode(in byte[2] code);
-
-  @VintfStability
-  parcelable ChipConcurrencyCombinationLimit {
-    android.hardware.wifi.IfaceConcurrencyType[] types;
-    int maxIfaces;
-  }
-  @VintfStability
-  parcelable ChipConcurrencyCombination {
-    android.hardware.wifi.IWifiChip.ChipConcurrencyCombinationLimit[] limits;
-  }
-  @VintfStability
-  parcelable ChipMode {
-    int id;
-    android.hardware.wifi.IWifiChip.ChipConcurrencyCombination[] availableCombinations;
-  }
-}
-EOF
-echo "$HASH" > "$TRIM/.hash"
-
-sources=()
-while IFS= read -r source; do sources+=("$source"); done < <(find "$TRIM" -name '*.aidl' | sort)
-"$AIDL" --lang=ndk --structured --stability=vintf --min_sdk_version=34 \
-  --version=2 --hash="$HASH" \
-  -o "$GEN/src" -h "$GEN/include" -I "$TRIM" "${sources[@]}"
+python3 "$HERE/generate-stubs.py" "$GEN/include" "$GEN/include/wifi_stubs.h"
 
 objects=()
 while IFS= read -r src; do

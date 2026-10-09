@@ -9,6 +9,7 @@ AOSP="$ROOT/src/aosp/$VARIANT"
 STUB="$AOSP/qemu/vendor"
 IMG="$AOSP/images/vendor.img"
 STAGE="$ROOT/out/vendor-img-stage-$VARIANT"
+python3 "$ROOT/scripts/check-runtime-inputs.py" "$AOSP/images/system.img"
 source "$ROOT/scripts/env.sh"
 # Prefer tracked guest Mesa under prebuilts/; fall back to legacy thirdparty path.
 MESA_PRE_CANDIDATES=(
@@ -142,8 +143,30 @@ CMD="$(mktemp)"
   if [[ -f bin/hw/android.hardware.wifi-service ]]; then
     echo "ea_set /bin/hw/android.hardware.wifi-service security.selinux u:object_r:hal_keymint_system_exec:s0"
   fi
+  if [[ -f bin/hw/android.hardware.wifi.supplicant-service ]]; then
+    echo "ea_set /bin/hw/android.hardware.wifi.supplicant-service security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+  if [[ -f bin/qemu-wifi-fake-scan.sh ]]; then
+    echo "ea_set /bin/qemu-wifi-fake-scan.sh security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+
   if [[ -f bin/hw/android.hardware.radio-service ]]; then
     echo "ea_set /bin/hw/android.hardware.radio-service security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+  if [[ -f bin/hw/android.hardware.bluetooth-service ]]; then
+    echo "ea_set /bin/hw/android.hardware.bluetooth-service security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+  if [[ -f bin/hw/android.hardware.biometrics.fingerprint-service ]]; then
+    echo "ea_set /bin/hw/android.hardware.biometrics.fingerprint-service security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+  if [[ -f bin/hw/android.hardware.nfc-service ]]; then
+    echo "ea_set /bin/hw/android.hardware.nfc-service security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+  if [[ -f bin/hw/android.hardware.gnss-service ]]; then
+    echo "ea_set /bin/hw/android.hardware.gnss-service security.selinux u:object_r:hal_keymint_system_exec:s0"
+  fi
+  if [[ -f bin/hw/android.hardware.media.c2-service ]]; then
+    echo "ea_set /bin/hw/android.hardware.media.c2-service security.selinux u:object_r:hal_keymint_system_exec:s0"
   fi
   echo "ea_set / security.selinux u:object_r:vendor_file:s0"
 } > "$CMD"

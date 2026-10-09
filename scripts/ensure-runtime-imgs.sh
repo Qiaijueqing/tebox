@@ -15,6 +15,13 @@ STUB="$QEMU_RT/vendor"
 KID="$(tr -d '[:space:]' < "$AOSP/KERNEL")"
 K="$ROOT/src/kernel/$KID"
 
+# system.img and gki/Image are runtime inputs; download when absent.
+bash "$ROOT/scripts/ensure-guest-downloads.sh" "$VARIANT"
+
+# Stale pointer files must never be packed as modules or boot images.
+python3 "$ROOT/scripts/check-runtime-inputs.py" \
+  "$IMAGES/system.img" "$K/gki/Image" "$K/vendor_modules" "$QEMU_RT/busybox"
+
 img_stale() {
   local img=$1
   shift
@@ -23,7 +30,7 @@ img_stale() {
   for p in "$@"; do
     [[ -e "$p" ]] || continue
     if [[ -d "$p" ]]; then
-      if find "$p" -type f -newer "$img" 2>/dev/null | grep -q .; then
+      if [[ -n "$(find "$p" -type f -newer "$img" -print -quit)" ]]; then
         return 0
       fi
     elif [[ -f "$p" && "$p" -nt "$img" ]]; then

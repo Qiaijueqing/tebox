@@ -21,7 +21,7 @@
 #include <poll.h>
 #include <unistd.h>
 #include "buffer_format.h"
-#include "rgb_storage_layout.h"
+#include "gpu_buffer.h"
 
 #define LOG_TAG "mapper-stub"
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -55,7 +55,6 @@ static const char kStdMetaName[] = "android.hardware.graphics.common.StandardMet
 typedef struct {
     const native_handle_t* handle;
     int32_t width, height, stride, format;
-    bool padded_rgb;
     uint64_t usage, id, size;
     void* mapped;
     int lock_count;
@@ -121,12 +120,6 @@ static int parse_handle(const native_handle_t* h, BufSlot* info) {
     info->stride = ints[2];
     info->format = ints[3];
     info->usage = ((uint64_t)(uint32_t)ints[5] << 32) | (uint32_t)ints[4];
-    info->padded_rgb = false;
-    if (h->numInts == 7) {
-        if (h->numFds != 1 || ints[6] != kTeBoxPaddedRgb ||
-            !teboxPaddedRgbValid(info->format, info->width, info->stride)) return 0;
-        info->padded_rgb = true;
-    } else if (h->numInts != 6) return 0;
     int bpp = bufferFormat(info->format).bytes;
     if (!bpp || info->width <= 0 || info->height <= 0 || info->stride < info->width) return 0;
     info->size = (uint64_t)info->stride * (uint64_t)info->height * (uint64_t)bpp;
@@ -267,9 +260,57 @@ static void* map_anonymous(uint64_t size) {
     return p;
 }
 
+// VirGL images need a TRANSFER_FROM_HOST operation before a CPU reader can
+// see GPU pixels. mmap of their PRIME fd is neither a readback nor necessarily
+// supported. Return a detached snapshot: unlock must never upload this copy
+// over the GPU's scanout image.
+static void* read_gpu_snapshot(const BufSlot* slot, int fd) {
+    // mediaswcodec's seccomp policy forbids mkdirat. Readback needs no shader
+    // disk cache; disable it before loading the Mesa driver in this process.
+    setenv("MESA_SHADER_CACHE_DISABLE", "true", 1);
+    // Mesa 24.3's database mode cleans up old directories before checking
+    // CACHE_DISABLE. Single-file mode bypasses that cleanup as well.
+    setenv("MESA_DISK_CACHE_SINGLE_FILE", "true", 1);
+    setenv("LIBGL_DRIVERS_PATH", "/vendor/lib64/dri", 0);
+    gbm_device* device = qemuGbmDevice();
+    if (!device) return MAP_FAILED;
+    BufferFormat format = bufferFormat(slot->format);
+    gbm_import_fd_data data = {};
+    data.fd = fd;
+    data.width = slot->width;
+    data.height = slot->height;
+    data.stride = slot->stride * format.bytes;
+    data.format = format.fourcc;
+    gbm_bo* bo = gbm_bo_import(device, GBM_BO_IMPORT_FD, &data, GBM_BO_USE_RENDERING);
+    if (!bo) {
+        ALOGW("GBM CPU readback import failed errno=%d", errno);
+        return MAP_FAILED;
+    }
+    uint32_t stride = 0;
+    void* transfer = NULL;
+    void* pixels = gbm_bo_map(bo, 0, 0, slot->width, slot->height,
+                            GBM_BO_TRANSFER_READ, &stride, &transfer);
+    void* snapshot = MAP_FAILED;
+    const size_t row = (size_t)slot->width * format.bytes;
+    if (pixels && pixels != MAP_FAILED) {
+        if (stride >= row) {
+            snapshot = map_anonymous(slot->size);
+            if (snapshot != MAP_FAILED) {
+                for (int y = 0; y < slot->height; ++y)
+                    memcpy((uint8_t*)snapshot + (size_t)y * data.stride,
+                           (const uint8_t*)pixels + (size_t)y * stride, row);
+            }
+        }
+        gbm_bo_unmap(bo, transfer);  // READ only: no transfer back to the host.
+    } else {
+        ALOGW("GBM CPU readback map failed errno=%d", errno);
+    }
+    gbm_bo_destroy(bo);
+    return snapshot;
+}
+
 static AIMapper_Error lock(buffer_handle_t buffer, uint64_t cpuUsage, ARect accessRegion,
                            int acquireFence, void** outData) {
-    (void)cpuUsage;
     (void)accessRegion;
     int signaled = fence_is_signaled(acquireFence);
     pthread_mutex_lock(&g_mu);
@@ -281,9 +322,14 @@ static AIMapper_Error lock(buffer_handle_t buffer, uint64_t cpuUsage, ARect acce
     if (!slot->mapped) {
         void* p = MAP_FAILED;
         int anonymous = 0;
+        // Android CPU_READ_* is in bits 0..3, CPU_WRITE_* in bits 4..7.
+        if (signaled && (cpuUsage & 0xf) && !(cpuUsage & 0xf0)) {
+            p = read_gpu_snapshot(slot, buffer->data[0]);
+            if (p != MAP_FAILED) anonymous = 1;
+        }
         // Only touch the GBM dma-buf when the GPU is done and the fd covers the image.
         // Otherwise serve zeroed pages so a CPU unlock cannot clobber scanout.
-        if (signaled && slot->cpu_mappable) {
+        if (p == MAP_FAILED && signaled && slot->cpu_mappable) {
             p = mmap(NULL, (size_t)slot->size, PROT_READ | PROT_WRITE, MAP_SHARED, buffer->data[0],
                      0);
         }

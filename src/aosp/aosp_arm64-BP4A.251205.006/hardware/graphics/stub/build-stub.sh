@@ -96,8 +96,6 @@ compile_one() {
     -DBINDER_STABILITY_SUPPORT \
     -I"$GEN/include" \
     -I"$HAL/stub" \
-    -I"$DRM_PREFIX/include" -I"$DRM_PREFIX/include/libdrm" \
-    -I"$MESA_PREFIX/include" \
     -I"$GSI_LIBS/include" \
     -Wno-unused-parameter \
     -Wno-deprecated-declarations
@@ -115,7 +113,6 @@ BIN="$OUT/bin/android.hardware.graphics-service"
   -L"$GSI_LIBS" \
   -Wl,-rpath,/system/lib64 \
   -static-libstdc++ \
-  -L"$MESA_PREFIX/lib" -Wl,-rpath,/vendor/lib64 -lgbm \
   -lbinder_ndk -llog \
   -Wl,--allow-shlib-undefined
 
@@ -126,38 +123,4 @@ echo "Interface meta-methods:"
 echo "OK $BIN"
 
 echo "== build mapper.stub.so (AIMAPPER5) =="
-MAPPER_INC="$HI/graphics/mapper/stable-c/include"
-HOST_INC="$ROOT/out/host-include"
-mkdir -p "$HOST_INC/cutils"
-if [[ ! -f "$HOST_INC/cutils/native_handle.h" ]]; then
-  echo "missing $HOST_INC/cutils/native_handle.h" >&2
-  exit 1
-fi
-MAPPER_SO="$OUT/lib64/hw/mapper.stub.so"
-mkdir -p "$OUT/lib64/hw"
-# GSI has libc++.so, not NDK's libc++_shared.so — avoid pulling the NDK C++ runtime.
-"$CC" -shared -o "$MAPPER_SO" \
-  "$HAL/stub/mapper_stub.cpp" \
-  -std=c++20 -fPIC -O2 -fno-exceptions -fno-rtti -nostdlib++ \
-  -DLOG_TAG='"mapper-stub"' \
-  -I"$MAPPER_INC" \
-  -I"$HOST_INC" \
-  -I"$GSI_LIBS/include" \
-  -L"$GSI_LIBS" \
-  -llog -lcutils \
-  -Wl,--allow-shlib-undefined \
-  -Wl,-soname,mapper.stub.so \
-  -Wno-unused-parameter
-
-file "$MAPPER_SO"
-ls -lh "$MAPPER_SO"
-"$NM" -D "$MAPPER_SO" 2>/dev/null | grep -E 'AIMapper_loadIMapper|ANDROID_HAL' || \
-  "$NM" "$MAPPER_SO" | grep -E 'AIMapper_loadIMapper|ANDROID_HAL'
-READELF=$NDK/toolchains/llvm/prebuilt/$NDK_HOST_TAG/bin/llvm-readelf
-echo "NEEDED:"
-"$READELF" -d "$MAPPER_SO" | grep NEEDED || true
-if "$READELF" -d "$MAPPER_SO" | grep -q 'libc++_shared'; then
-  echo "ERROR: mapper still depends on libc++_shared.so" >&2
-  exit 1
-fi
-echo "OK $MAPPER_SO"
+bash "$SCRIPT_DIR/build-mapper.sh"

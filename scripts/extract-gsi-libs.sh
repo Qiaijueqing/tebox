@@ -8,7 +8,7 @@ DEBUGFS="$E2/debugfs"
 [[ -s "$SYSTEM_IMG" ]] || { echo "missing $SYSTEM_IMG" >&2; exit 1; }
 mkdir -p "$GSI_LIBS"
 for lib in libbinder_ndk.so libcutils.so liblog.so libc++.so \
-    libkeymint_fake_latest.so \
+    libkeymint_fake_latest.so libkeymaster_portable.so \
     android.hardware.security.keymint-V4-ndk.so \
     android.hardware.security.secureclock-V1-ndk.so \
     android.hardware.security.sharedsecret-V1-ndk.so; do

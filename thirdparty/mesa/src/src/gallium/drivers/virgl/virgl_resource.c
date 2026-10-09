@@ -98,10 +98,12 @@ static bool virgl_can_copy_transfer_from_host(struct virgl_screen *vs,
                                               struct virgl_resource *res,
                                               int bind)
 {
+   enum virgl_formats format = pipe_to_virgl_format(res->b.format);
    return virgl_can_use_staging(vs, res) &&
          !is_stencil_array(res) &&
          !(bind & VIRGL_BIND_SHARED) &&
-         virgl_has_readback_format(&vs->base, pipe_to_virgl_format(res->b.format), false) &&
+         (virgl_has_readback_format(&vs->base, format, false) ||
+          format == VIRGL_FORMAT_R8_UNORM || format == VIRGL_FORMAT_R8G8_UNORM) &&
          ((!(vs->caps.caps.v2.capability_bits & VIRGL_CAP_HOST_IS_GLES)) ||
           virgl_can_readback_from_rendertarget(vs, res) ||
           virgl_can_readback_from_scanout(vs, res, bind));
@@ -666,6 +668,15 @@ static struct pipe_resource *virgl_resource_create_front(struct pipe_screen *scr
    // for then for textures alloc minimum size of bo
    // This size is not passed to the host
    res->use_staging = virgl_can_copy_transfer_from_host(vs, res, vbind);
+   /* Video encode input planes are ordinary R8/R8G8 textures, but the
+    * renderer may omit them from its readback-format mask.  They still need
+    * the staging upload path because host GL textures are not mappable. */
+   if (templ->target == PIPE_TEXTURE_2D &&
+       (templ->format == PIPE_FORMAT_R8_UNORM ||
+        templ->format == PIPE_FORMAT_R8G8_UNORM) &&
+       (vs->caps.caps.v2.capability_bits_v2 & VIRGL_CAP_V2_COPY_TRANSFER_BOTH_DIRECTIONS))
+      res->use_staging = true;
+
 
    if (res->use_staging)
       alloc_size = 1;
@@ -869,6 +880,29 @@ static void virgl_buffer_subdata(struct pipe_context *pipe,
    u_default_buffer_subdata(pipe, resource, usage, offset, size, data);
 }
 
+static void
+virgl_texture_subdata(struct pipe_context *pipe,
+                      struct pipe_resource *resource,
+                      unsigned level, unsigned usage,
+                      const struct pipe_box *box, const void *data,
+                      unsigned stride, uintptr_t layer_stride)
+{
+   (void)usage;
+   /* The inline protocol is used by the codec's R8/R8G8 NV12 staging
+    * textures. Keep normal application textures on Mesa's validated upload
+    * path; arbitrary RGBA subdata can carry client-owned lifetimes and the
+    * raw inline memcpy path is not safe for it. */
+   if (resource->format != PIPE_FORMAT_R8_UNORM &&
+       resource->format != PIPE_FORMAT_R8G8_UNORM) {
+      u_default_texture_subdata(pipe, resource, level, usage, box, data, stride,
+                                layer_stride);
+      return;
+   }
+   virgl_encode_resource_inline_write(virgl_context(pipe),
+                                      virgl_resource(resource), level, box,
+                                      data, stride, layer_stride);
+}
+
 void virgl_init_context_resource_functions(struct pipe_context *ctx)
 {
     ctx->buffer_map = virgl_resource_transfer_map;
@@ -877,7 +911,10 @@ void virgl_init_context_resource_functions(struct pipe_context *ctx)
     ctx->buffer_unmap = virgl_buffer_transfer_unmap;
     ctx->texture_unmap = virgl_texture_transfer_unmap;
     ctx->buffer_subdata = virgl_buffer_subdata;
-    ctx->texture_subdata = u_default_texture_subdata;
+   /* Keep Mesa's validated upload path.  The custom inline protocol is not
+    * safe for all threaded-context callers because its source pointer may be
+    * consumed after the caller's temporary buffer lifetime. */
+   ctx->texture_subdata = u_default_texture_subdata;
 }
 
 

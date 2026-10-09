@@ -49,6 +49,9 @@
 		dri_query_dma_buf_modifiers;
 		dri2_query_dma_buf_format_modifier_attribs;
 		dri_query_compatible_render_only_device_fd;
+		virtio_gpu_driver_descriptor;
+		gki_virtio_gpu_driver_descriptor;
+		gki_virgl_video_create_buffer_from_resource;
 		driSWRastQueryBufferAge;
 		dri_set_damage_region;
 		dri_fence_get_caps;

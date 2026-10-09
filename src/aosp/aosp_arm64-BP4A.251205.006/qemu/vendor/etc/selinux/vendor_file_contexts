@@ -1,5 +1,6 @@
 /vendor(/.*)?    u:object_r:vendor_file:s0
 /dev/hvc[0-9]+    u:object_r:console_device:s0
+/data/misc/qemu-keymint(/.*)?    u:object_r:keystore_data_file:s0
 /vendor/bin(/.*)?    u:object_r:vendor_file:s0
 /vendor/bin/hw/android\.hardware\.security\.keymint-service    u:object_r:hal_keymint_system_exec:s0
 /vendor/etc(/.*)?    u:object_r:vendor_configs_file:s0
@@ -12,3 +13,16 @@
 /vendor/bin/hw/android\.hardware\.sensors-service    u:object_r:hal_keymint_system_exec:s0
 /vendor/bin/hw/android\.hardware\.wifi-service    u:object_r:hal_keymint_system_exec:s0
 /vendor/bin/hw/android\.hardware\.radio-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.wifi\.supplicant-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.wifi\.supplicant-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.wifi\.supplicant-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.wifi\.supplicant-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.bluetooth-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.bluetooth-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.bluetooth-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.bluetooth-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.biometrics\.fingerprint-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.nfc-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.biometrics\.fingerprint-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.gnss-service    u:object_r:hal_keymint_system_exec:s0
+/vendor/bin/hw/android\.hardware\.media\.c2-service    u:object_r:hal_keymint_system_exec:s0

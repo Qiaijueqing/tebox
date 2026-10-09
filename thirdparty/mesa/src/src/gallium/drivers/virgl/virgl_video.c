@@ -1326,3 +1326,46 @@ virgl_video_create_buffer(struct pipe_context *ctx,
     return vbuf->buf;
 }
 
+struct pipe_video_buffer *
+virgl_video_create_buffer_from_resource(struct pipe_context *ctx,
+                                        struct pipe_resource *resource,
+                                        enum pipe_format format,
+                                        unsigned width, unsigned height)
+{
+    struct virgl_context *vctx = virgl_context(ctx);
+    struct virgl_video_buffer *vbuf;
+    struct pipe_video_buffer tmpl = {0};
+    struct pipe_resource *resources[VL_NUM_COMPONENTS] = { resource, NULL, NULL };
+
+    if (!ctx || !resource || !width || !height ||
+        util_format_get_num_planes(format) != 1)
+        return NULL;
+
+    vbuf = CALLOC_STRUCT(virgl_video_buffer);
+    if (!vbuf)
+        return NULL;
+
+    tmpl.buffer_format = format;
+    tmpl.width = width;
+    tmpl.height = height;
+    tmpl.bind = PIPE_BIND_SAMPLER_VIEW;
+    tmpl.contiguous_planes = true;
+    vbuf->buf = vl_video_buffer_create_ex2(ctx, &tmpl, resources);
+    if (!vbuf->buf) {
+        /* vl_video_buffer_create_ex2 takes ownership of resources[0]. */
+        free(vbuf);
+        return NULL;
+    }
+    vbuf->buf->destroy = virgl_video_destroy_buffer;
+    vl_video_buffer_set_associated_data(vbuf->buf, NULL, vbuf,
+                                        virgl_video_destroy_buffer_associated_data);
+    vbuf->num_planes = 1;
+    vbuf->plane_views = vbuf->buf->get_sampler_view_planes(vbuf->buf);
+    vbuf->handle = virgl_object_assign_handle();
+    vbuf->buffer_format = format;
+    vbuf->width = width;
+    vbuf->height = height;
+    vbuf->vctx = vctx;
+    virgl_encode_create_video_buffer(vctx, vbuf);
+    return vbuf->buf;
+}

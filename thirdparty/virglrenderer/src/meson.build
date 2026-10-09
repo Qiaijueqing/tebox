@@ -154,9 +154,12 @@ proxy_sources = [
 ]
 
 video_sources = [
-   'vrend/virgl_video.c',
-   'vrend/vrend_video.c',
 ]
+if with_host_darwin
+   video_sources += ['vrend/vrend_video_vt.c']
+else
+   video_sources += ['vrend/virgl_video.c', 'vrend/vrend_video.c']
+endif
 
 virgl_depends = [
    gallium_dep,
@@ -232,7 +235,11 @@ endif
 
 if with_video
   virgl_sources += video_sources
-  virgl_depends += [libva_dep, libvadrm_dep]
+  if not with_host_darwin
+     virgl_depends += [libva_dep, libvadrm_dep]
+  else
+     virgl_depends += [videotoolbox_dep]
+  endif
 endif
 
 if with_host_windows

@@ -22,8 +22,8 @@ p.write_text(s)
 PY
 make -C thirdparty/busybox O="$BB_BUILD" CROSS_COMPILE=aarch64-linux-gnu- -j"${JOBS:-8}"
 install -m 0755 "$BB_BUILD/busybox" "src/aosp/$VARIANT/qemu/busybox"
-bash scripts/build-libdrm-android.sh
-bash scripts/build-mesa-android.sh
+bash .ci/build-libdrm-android.sh
+bash .ci/build-mesa-android.sh
 bash scripts/build-hals.sh
 bash scripts/build-vendor-img.sh
 bash scripts/build-initramfs.sh

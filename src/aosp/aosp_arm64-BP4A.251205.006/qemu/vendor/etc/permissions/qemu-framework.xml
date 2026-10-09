@@ -16,4 +16,22 @@
     <!-- Soft WiFi HAL chip (wlan0); kernel nl80211 still required for real scans. -->
     <feature name="android.hardware.wifi"/>
     <feature name="android.hardware.wifi.direct"/>
+
+    <!-- Soft Bluetooth HCI (virtual controller; no RF discovery). -->
+    <feature name="android.hardware.bluetooth"/>
+    <feature name="android.hardware.bluetooth_le"/>
+
+    <!-- Soft virtual GNSS (Beijing fix, 1Hz; no real RF). -->
+    <feature name="android.hardware.location"/>
+    <feature name="android.hardware.location.gps"/>
+
+    <!-- Soft fingerprint (sensor props only; no real enroll/auth). -->
+    <feature name="android.hardware.fingerprint"/>
+
+    <!-- Soft NFC (enable/disable toggle; no tags). -->
+    <feature name="android.hardware.nfc"/>
+    <feature name="android.hardware.nfc.hce"/>
+    <feature name="android.hardware.nfc.any"/>
 </permissions>
+
+

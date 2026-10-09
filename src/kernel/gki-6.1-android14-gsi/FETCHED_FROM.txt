@@ -1,20 +1,9 @@
-VERSION=6.1
-BRANCH=android14-gsi
-via=git-clone
+kernel_id=gki-6.1-android14-gsi
+via=opencecs-mirror
 
-# gki/Image — prebuilt GKI kernel binary:
-PREBUILT_IMAGE=https://android.googlesource.com/kernel/prebuilts/6.1/arm64
-#   git clone -b android14-gsi --depth 1 \
-#     https://android.googlesource.com/kernel/prebuilts/6.1/arm64
+# gki/Image — runtime download (not tracked in Git):
+IMAGE_URL=https://mirror.opencecs.com/f/GKI/gki-6.1-android14-gsi/Image
+#   fetched by scripts/ensure-guest-downloads.sh / ./run
 
-# vendor_modules/*.ko — virtual-device modules (virtio-gpu/blk/net/...):
-PREBUILT_MODULES=https://android.googlesource.com/kernel/prebuilts/common-modules/virtual-device/6.1/arm64
-#   git clone -b android14-gsi --depth 1 \
-#     https://android.googlesource.com/kernel/prebuilts/common-modules/virtual-device/6.1/arm64
-# Local install path: vendor_modules/ (see vendor_modules/modules.load)
-
-# Kernel source (not cloned here; clone this if you want to build/modify GKI):
-KERNEL_COMMON=https://android.googlesource.com/kernel/common
-KERNEL_COMMON_BRANCH=android14-6.1
-#   git clone -b android14-6.1 --depth 1 \
-#     https://android.googlesource.com/kernel/common gki-common
+# vendor_modules/*.ko — tracked in Git (virtio-gpu/blk/net/...):
+#   pinned in .ci/guest.lock.json kernel_files

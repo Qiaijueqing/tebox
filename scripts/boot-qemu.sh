@@ -15,6 +15,7 @@ SYSTEM="$AOSP/images/system.img"
 VENDOR="$AOSP/images/vendor.img"
 INITRD="$AOSP/images/initramfs.img"
 WORKDIR="$ROOT/out/test-$VARIANT"
+python3 "$ROOT/scripts/check-runtime-inputs.py" "$KERNEL" "$SYSTEM" "$VENDOR" "$INITRD"
 mkdir -p "$WORKDIR"
 
 source "$ROOT/scripts/env.sh"
@@ -94,6 +95,25 @@ done < "$CMDLINE_FILE"
 EXTRA=()
 EXTRA+=(-initrd "$INITRD")
 
+# TCP ADB is on by default (host loopback only). Set QEMU_ADB=0 to disable.
+# Initramfs forces ro.adb.secure=0 when androidboot.qemu_adb=1 (no RSA prompt).
+NETDEV=user,id=net0
+if [[ "${QEMU_ADB:-1}" == 1 ]]; then
+  ADB_PORT="${ADB_PORT:-5555}"
+  if ! [[ "$ADB_PORT" =~ ^[0-9]+$ ]] || (( ${#ADB_PORT} > 5 )); then
+    echo "ADB_PORT must be an integer in 1..65535" >&2
+    exit 1
+  fi
+  ADB_PORT=$((10#$ADB_PORT))
+  (( ADB_PORT >= 1 && ADB_PORT <= 65535 )) || {
+    echo "ADB_PORT must be an integer in 1..65535" >&2
+    exit 1
+  }
+  APPEND+=(androidboot.qemu_adb=1)
+  NETDEV+=",hostfwd=tcp:127.0.0.1:$ADB_PORT-:5555"
+  echo "adb:     127.0.0.1:$ADB_PORT (guest TCP 5555)"
+fi
+
 if [[ "${QEMU_DEBUG:-0}" == 1 ]]; then
   APPEND+=(androidboot.qemu_debug=1 printk.devkmsg=on)
   EXTRA+=(-device virtio-serial-pci
@@ -159,6 +179,6 @@ exec "$QEMU_BIN" \
   -drive if=none,file="$VENDOR",format=raw,id=vendor,readonly=on \
   -device virtio-blk-pci,drive=vendor,serial=vendor \
   -device virtio-net-pci,netdev=net0 \
-  -netdev user,id=net0 \
+  -netdev "$NETDEV" \
   "${NGFX[@]}" \
   -serial "${QEMU_SERIAL:-stdio}"

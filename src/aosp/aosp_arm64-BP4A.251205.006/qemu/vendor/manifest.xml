@@ -93,6 +93,36 @@
         <fqname>IRadioVoice/slot1</fqname>
         <fqname>IRadioVoice/slot2</fqname>
     </hal>
+    <hal format="aidl">
+        <name>android.hardware.wifi.supplicant</name>
+        <version>3</version>
+        <fqname>ISupplicant/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.bluetooth</name>
+        <version>1</version>
+        <fqname>IBluetoothHci/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.biometrics.fingerprint</name>
+        <version>4</version>
+        <fqname>IFingerprint/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.nfc</name>
+        <version>2</version>
+        <fqname>INfc/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.gnss</name>
+        <version>2</version>
+        <fqname>IGnss/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.media.c2</name>
+        <version>1</version>
+        <fqname>IComponentStore/default</fqname>
+    </hal>
 </manifest>
 
 

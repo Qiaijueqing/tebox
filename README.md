@@ -35,6 +35,7 @@
 
 - **通用 GSI 运行**：以官方 aosp_arm64 GSI 为默认示例，也可替换为任意兼容的 ARM64 GSI（例如 Google、Samsung 等厂商发布的 GSI / Treble 镜像，或由 Pixel、Galaxy 等设备提取的 system 镜像）
 - **图形与输入**：VirGL GPU 加速、virtio 触摸屏
+- **编解码**：Gallium video 直通到宿主后端（Linux VA-API / macOS VideoToolbox），Mesa 客体侧注册 `c2.mesa.*` 编解码组件（H.264 / H.265 / VP9 / AV1）
 - **开机所需 HAL 示例**：已内置 Graphics、KeyMint（soft）、Health、Power、Audio 等 soft / stub 实现，可按厂商需求裁剪或替换
 
 > 说明：能否完整启动取决于目标 GSI 的 Treble / VINTF 要求；厂商专有分区与闭源服务需自行适配。基座提供的是可扩展的运行与 HAL 框架，而不是某一机型的一键刷机包。从设备提取或使用第三方 / 厂商镜像、固件与闭源组件时，请自行确认并遵守当地法律、厂商许可协议与版权要求；相关合规与法律风险由使用者自行承担。
@@ -56,6 +57,7 @@
 | **macOS ARM64**（Apple Silicon，M1–M4） | 推荐；HVF + VirGL 已验证 |
 | **Linux ARM64** | 支持原生构建与运行（KVM） |
 | **Linux x86_64** | 主要用于交叉编译 Android ARM64 客体 |
+| **Windows x86_64** | 原生 QEMU/VirGL PE 运行时 |
 
 客体为 **aarch64 Android GSI**；推荐配备可用 GPU 与图形会话。
 
@@ -67,7 +69,7 @@
 
 ## 正确拉取源码
 
-本仓库使用 **Git LFS** 保存 `system.img`、GKI 内核 `Image` 和内核模块 `*.ko`。请先安装 Git 和 Git LFS：macOS 可执行 `brew install git-lfs`；Ubuntu / Debian 可执行 `sudo apt-get install git-lfs`。
+先安装并初始化 Git LFS（macOS：`brew install git-lfs`；Ubuntu/Debian：`sudo apt-get install git-lfs`）：
 
 ```bash
 git lfs install
@@ -75,17 +77,6 @@ git clone https://github.com/opencecs/tebox.git
 cd tebox
 git lfs pull
 ```
-
-如果已经克隆过仓库，在仓库根目录执行以下命令即可补齐大文件：
-
-```bash
-git lfs install
-git lfs pull
-```
-
-`system.img` 应为 GB 级镜像。如果文件只有一百多字节，内容以 `version https://git-lfs.github.com/spec/v1` 开头，说明拿到的是 LFS 指针，尚未下载真实文件；内核和模块也可能处于同样状态，无法用于启动。请完成 `git lfs pull` 后再运行。发布仓库时，维护者也必须上传对应的 LFS 对象；仅推送指针文件无法让其他人取得完整镜像。
-
-`vendor.img` 和 `initramfs.img` 不提交到仓库，由 `./run` 根据源码自动生成。首次使用还需准备当前宿主平台的 QEMU/VirGL，构建入口见 [构建说明](.ci/README.md)；`out/` 中的本地编译结果不会随克隆下载。
 
 ## 快速开始
 
