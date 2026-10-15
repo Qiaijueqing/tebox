@@ -679,10 +679,17 @@ MesaAvcComponent::MesaAvcComponent(
       mListener(std::move(listener)) {}
 
 MesaAvcComponent::~MesaAvcComponent() {
-    mReleased = true;
-    mRunning = false;
+    // A client that dies without stop()/release() leaves both threads
+    // running; a joinable std::thread in a destructor terminates the HAL.
+    {
+        std::lock_guard<std::mutex> lock(mLock);
+        mReleased = true;
+        mRunning = false;
+    }
     mCv.notify_all();
+    mInFlightCv.notify_all();
     if (mWorker.joinable()) mWorker.join();
+    if (mCollector.joinable()) mCollector.join();
 }
 
 std::vector<uint8_t> MesaAvcComponent::extractLinearData(

@@ -116,6 +116,13 @@ static void mw_str(MetaWriter* w, const char* s) {
     mw_bytes(w, s, (size_t)n);
 }
 
+// Bytes the CPU sees: one plane for RGB, the Android layouts for YUV.
+static uint64_t buffer_size(const BufSlot* info, int bpp) {
+    if (info->format == kYv12) return yv12Layout((uint32_t)info->width, (uint32_t)info->height).size;
+    uint64_t size = (uint64_t)info->stride * (uint64_t)info->height * (uint64_t)bpp;
+    return info->format == 35 ? size * 3 / 2 : size;
+}
+
 static int parse_handle(const native_handle_t* h, BufSlot* info) {
     struct TeboxBufferInfo tb;
     if (teboxBufferInfo(h, &tb) && tb.gfxstream) {
@@ -126,7 +133,7 @@ static int parse_handle(const native_handle_t* h, BufSlot* info) {
         info->stride = tb.stride;
         info->format = tb.format;
         info->usage = tb.usage;
-        info->size = (uint64_t)tb.stride * (uint64_t)tb.height * (uint64_t)bpp;
+        info->size = buffer_size(info, bpp);
         info->cpu_mappable = 1;
         info->gfxstream = 1;
         struct stat st;
@@ -144,7 +151,7 @@ static int parse_handle(const native_handle_t* h, BufSlot* info) {
     info->usage = ((uint64_t)(uint32_t)ints[5] << 32) | (uint32_t)ints[4];
     int bpp = bufferFormat(info->format).bytes;
     if (!bpp || info->width <= 0 || info->height <= 0 || info->stride < info->width) return 0;
-    info->size = (uint64_t)info->stride * (uint64_t)info->height * (uint64_t)bpp;
+    info->size = buffer_size(info, bpp);
     info->cpu_mappable = 0;
     struct stat st;
     if (fstat(h->data[0], &st) != 0) {
@@ -345,7 +352,9 @@ static AIMapper_Error lock(buffer_handle_t buffer, uint64_t cpuUsage, ARect acce
         const uint32_t pitch = (uint32_t)slot->stride * (uint32_t)bufferFormat(slot->format).bytes;
         // Pull the host ColorBuffer into the guest backing before the CPU
         // reads it (writers get the current pixels too: partial updates).
-        if (signaled && !virtgpuTransfer(buffer->data[0], false, (uint32_t)slot->width,
+        // YUV buffers are only written by the CPU, so the guest backing is
+        // already current (and gfxstream cannot read a YUV image back).
+        if (signaled && slot->format != kYv12 && !virtgpuTransfer(buffer->data[0], false, (uint32_t)slot->width,
                                          (uint32_t)slot->height, pitch))
             ALOGW("gfxstream transfer from host failed errno=%d", errno);
         if (!slot->mapped) {
@@ -482,16 +491,59 @@ static int32_t encode_ext_none(int64_t type, void* dest, size_t cap) {
     return w.wanted;
 }
 
+static const char kPlaneComp[] = "android.hardware.graphics.common.PlaneLayoutComponentType";
+
+// One PlaneLayout with 8-bit components; |comps| are {type, offsetInBits}.
+static void mw_plane(MetaWriter* w, const int64_t (*comps)[2], int n, int64_t offset,
+                     int64_t sampleBits, int64_t stride, int64_t width, int64_t height,
+                     int64_t size, int64_t sub) {
+    mw_i64(w, n);
+    for (int i = 0; i < n; i++) {
+        mw_str(w, kPlaneComp);
+        mw_i64(w, comps[i][0]);
+        mw_i64(w, comps[i][1]);
+        mw_i64(w, 8);
+    }
+    mw_i64(w, offset);
+    mw_i64(w, sampleBits);
+    mw_i64(w, stride);
+    mw_i64(w, width);
+    mw_i64(w, height);
+    mw_i64(w, size);
+    mw_i64(w, sub);
+    mw_i64(w, sub);
+}
+
 static int32_t encode_planes(const BufSlot* info, void* dest, size_t cap) {
     MetaWriter w = {(uint8_t*)dest, cap, 0};
     mw_header(&w, META_PLANE_LAYOUTS);
+    // PlaneLayoutComponentType: Y = 1, CB = 2, CR = 4.
+    if (info->format == kYv12) {
+        const Yv12Layout l = yv12Layout((uint32_t)info->width, (uint32_t)info->height);
+        const int64_t y[1][2] = {{1, 0}}, cr[1][2] = {{4, 0}}, cb[1][2] = {{2, 0}};
+        mw_i64(&w, 3);
+        mw_plane(&w, y, 1, 0, 8, l.yStride, info->width, info->height, l.ySize, 1);
+        mw_plane(&w, cr, 1, l.ySize, 8, l.cStride, info->width / 2, info->height / 2, l.cSize, 2);
+        mw_plane(&w, cb, 1, l.ySize + l.cSize, 8, l.cStride, info->width / 2, info->height / 2,
+                 l.cSize, 2);
+        return w.wanted;
+    }
+    if (info->format == 35) {
+        // The allocator's YCbCr_420_888: Y, then interleaved Cb/Cr (NV12).
+        const int64_t luma = (int64_t)info->stride * info->height;
+        const int64_t y[1][2] = {{1, 0}}, cbcr[2][2] = {{2, 0}, {4, 8}};
+        mw_i64(&w, 2);
+        mw_plane(&w, y, 1, 0, 8, info->stride, info->width, info->height, luma, 1);
+        mw_plane(&w, cbcr, 2, luma, 16, info->stride, info->width / 2, info->height / 2,
+                 luma / 2, 2);
+        return w.wanted;
+    }
     mw_i64(&w, 1);
     BufferFormat fmt = bufferFormat(info->format);
     mw_i64(&w, fmt.components);
-    const char* kComp = "android.hardware.graphics.common.PlaneLayoutComponentType";
     const int64_t comps[] = {1LL << 10, 1LL << 11, 1LL << 12, 1LL << 30};
     for (int i = 0; i < fmt.components; i++) {
-        mw_str(&w, kComp);
+        mw_str(&w, kPlaneComp);
         mw_i64(&w, comps[i]);
         mw_i64(&w, fmt.offsets[i]);
         mw_i64(&w, fmt.bits[i]);

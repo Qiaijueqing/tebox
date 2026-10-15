@@ -54,6 +54,7 @@ SRCS := \
 	src/v4l2enc.c \
 	src/media.c \
 	src/venc.c \
+	src/vdec.c \
 	src/main.c
 
 OBJS := $(SRCS:src/%.c=$(OUT)/%.o)

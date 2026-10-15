@@ -1459,6 +1459,164 @@ static void tebox_res_server_start(VirtIOGPURutabaga *vr)
     qemu_set_fd_handler(fd, tebox_res_accept, NULL, NULL);
 }
 
+/*
+ * tebox (local, not for upstream): picture service for the host video
+ * decoder (tebox-cast vdec). The guest Codec2 decoder hands over empty RGBA
+ * output buffers by resource id; tebox-cast decodes on the host hardware
+ * decoder and asks this server to draw each NV12/P010 picture (dma-bufs,
+ * SCM_RIGHTS) into the next buffer's ColorBuffer on the GPU
+ * (ui/tebox-yuv-blit.c). Main loop, like tebox_res, where QEMU's EGL
+ * display lives.
+ *
+ * Protocol on the unix socket $TEBOX_BLIT_SOCK (one client at a time):
+ *   client -> server: struct tebox_blit_req + one fd per plane
+ *   server -> client: int32 status (0, or a negative errno)
+ */
+#define TEBOX_BLIT_MAGIC 0x544c4254u /* 'TBLT' */
+
+struct tebox_blit_req {
+    uint32_t magic;
+    uint32_t resource_id;
+    uint32_t dst_width, dst_height;
+    uint32_t fourcc;
+    uint32_t width, height;
+    uint32_t crop_w, crop_h;
+    uint32_t num_fds;
+    uint32_t offsets[2], pitches[2];
+} QEMU_PACKED;
+
+/* ui/tebox-yuv-blit.c */
+struct tebox_yuv_picture {
+    uint32_t fourcc;
+    uint32_t width, height;
+    uint32_t crop_w, crop_h;
+    int fds[2];
+    uint32_t offsets[2], pitches[2];
+};
+/* Weak: absent when QEMU is built without OpenGL. */
+bool tebox_yuv_blit(const struct tebox_yuv_picture *src, int dst_fd, uint32_t dst_offset,
+                    uint32_t dst_pitch, uint32_t dst_w, uint32_t dst_h)
+    __attribute__((weak));
+
+static struct {
+    VirtIOGPURutabaga *vr;
+    int listen_fd;
+    int client_fd;
+} tebox_blit = { .listen_fd = -1, .client_fd = -1 };
+
+static void tebox_blit_drop_client(void)
+{
+    if (tebox_blit.client_fd >= 0) {
+        qemu_set_fd_handler(tebox_blit.client_fd, NULL, NULL, NULL);
+        close(tebox_blit.client_fd);
+        tebox_blit.client_fd = -1;
+    }
+}
+
+static int32_t tebox_blit_draw(const struct tebox_blit_req *req, const int *fds)
+{
+    tebox_layout_fn layout = tebox_layout_lookup();
+    struct rutabaga_handle handle = { 0 };
+    struct tebox_yuv_picture pic = {
+        req->fourcc, req->width, req->height, req->crop_w, req->crop_h,
+        { fds[0], req->num_fds > 1 ? fds[1] : fds[0] },
+        { req->offsets[0], req->offsets[1] }, { req->pitches[0], req->pitches[1] },
+    };
+    uint64_t offset = 0;
+    uint32_t pitch = 0;
+    int32_t status;
+
+    if (!tebox_yuv_blit || !layout) {
+        return -ENOTSUP;
+    }
+    if (layout(req->resource_id, &offset, &pitch) ||
+        rutabaga_resource_export_blob(tebox_blit.vr->rutabaga, req->resource_id, &handle)) {
+        return -ENOENT;
+    }
+    if (handle.handle_type != RUTABAGA_HANDLE_TYPE_MEM_DMABUF) {
+        close((int)handle.os_handle);
+        return -ENOTSUP;
+    }
+    status = tebox_yuv_blit(&pic, (int)handle.os_handle, (uint32_t)offset, pitch, req->dst_width,
+                  req->dst_height) ? 0 : -EIO;
+    close((int)handle.os_handle);
+    return status;
+}
+
+static void tebox_blit_client_read(void *opaque)
+{
+    struct tebox_blit_req req;
+    char ctrl[CMSG_SPACE(2 * sizeof(int))];
+    struct iovec iov = { &req, sizeof(req) };
+    struct msghdr msg = { .msg_iov = &iov, .msg_iovlen = 1,
+                          .msg_control = ctrl, .msg_controllen = sizeof(ctrl) };
+    struct cmsghdr *cmsg;
+    int fds[2] = { -1, -1 };
+    int nfds = 0;
+    int32_t status = -EINVAL;
+
+    if (recvmsg(tebox_blit.client_fd, &msg, MSG_WAITALL) != sizeof(req)) {
+        tebox_blit_drop_client();
+        return;
+    }
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            nfds = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+            nfds = MIN(nfds, 2);
+            memcpy(fds, CMSG_DATA(cmsg), nfds * sizeof(int));
+        }
+    }
+    if (req.magic == TEBOX_BLIT_MAGIC && nfds >= 1 && req.num_fds >= 1 &&
+        req.num_fds <= (uint32_t)nfds && req.width && req.height &&
+        req.crop_w <= req.width && req.crop_h <= req.height &&
+        req.dst_width && req.dst_height && req.dst_width <= 16384 && req.dst_height <= 16384) {
+        status = tebox_blit_draw(&req, fds);
+    }
+    for (int i = 0; i < nfds; i++) {
+        close(fds[i]);
+    }
+    if (send(tebox_blit.client_fd, &status, sizeof(status), MSG_NOSIGNAL) != sizeof(status)) {
+        tebox_blit_drop_client();
+    }
+}
+
+static void tebox_blit_accept(void *opaque)
+{
+    int fd = accept(tebox_blit.listen_fd, NULL, NULL);
+
+    if (fd < 0) {
+        return;
+    }
+    tebox_blit_drop_client();  /* the newest client (a restarted tebox-cast) wins */
+    tebox_blit.client_fd = fd;
+    qemu_set_fd_handler(fd, tebox_blit_client_read, NULL, NULL);
+}
+
+static void tebox_blit_server_start(VirtIOGPURutabaga *vr)
+{
+    const char *path = g_getenv("TEBOX_BLIT_SOCK");
+    struct sockaddr_un addr = { .sun_family = AF_UNIX };
+    int fd;
+
+    if (!path || !*path || strlen(path) >= sizeof(addr.sun_path)) {
+        return;
+    }
+    fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    strcpy(addr.sun_path, path);
+    unlink(path);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) || listen(fd, 1)) {
+        warn_report("tebox: picture server %s: %s", path, strerror(errno));
+        close(fd);
+        return;
+    }
+    tebox_blit.vr = vr;
+    tebox_blit.listen_fd = fd;
+    qemu_set_fd_handler(fd, tebox_blit_accept, NULL, NULL);
+}
+
 static void virtio_gpu_rutabaga_realize(DeviceState *qdev, Error **errp)
 {
     ERRP_GUARD();
@@ -1485,6 +1643,7 @@ static void virtio_gpu_rutabaga_realize(DeviceState *qdev, Error **errp)
     }
 
     tebox_res_server_start(VIRTIO_GPU_RUTABAGA(qdev));
+    tebox_blit_server_start(VIRTIO_GPU_RUTABAGA(qdev));
 
     bdev->conf.flags |= (1 << VIRTIO_GPU_FLAG_RUTABAGA_ENABLED);
     bdev->conf.flags |= (1 << VIRTIO_GPU_FLAG_BLOB_ENABLED);

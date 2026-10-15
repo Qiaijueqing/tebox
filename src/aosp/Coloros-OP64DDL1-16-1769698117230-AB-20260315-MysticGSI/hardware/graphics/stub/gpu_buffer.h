@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gbm.h>
+#include "buffer_format.h"
 #include <drm/virtgpu_drm.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -79,6 +80,7 @@ static uint32_t virglFormat(int format) {
         case 5: return 1;       // B8G8R8A8_UNORM
         case 0x16: return 94;   // R16G16B16A16_FLOAT
         case 0x2b: return 8;    // R10G10B10A2_UNORM (gfxstream numbering)
+        case kYv12: return 163; // YV12, uploaded as a 3-plane image by gfxstream
         default: return 0;
     }
 }
@@ -100,6 +102,11 @@ static int virtgpuCreate(uint32_t width, uint32_t height, int format, int bytes,
     create.array_size = 1;
     create.stride = width * bytes;
     create.size = create.stride * height;
+    if (format == kYv12) {
+        const Yv12Layout l = yv12Layout(width, height);
+        create.stride = l.yStride;
+        create.size = l.size;
+    }
     if (ioctl(fd, DRM_IOCTL_VIRTGPU_RESOURCE_CREATE, &create)) return -1;
     drm_prime_handle prime = {};
     prime.handle = create.bo_handle;

@@ -449,9 +449,10 @@ class VkEmulation {
     void teboxFlushDeferredFrees(VkDevice device);
     // Rewrites |ci| to the explicit linear layout shared by a ColorBuffer and
     // the guest images bound to it; chain |explicitCi| into |ci| on success.
+    static constexpr uint32_t kTeboxMaxPlanes = 3;
     bool teboxDmaBufLayout(VkImageCreateInfo* ci, uint32_t pitchWidth,
                            VkImageDrmFormatModifierExplicitCreateInfoEXT* explicitCi,
-                           VkSubresourceLayout* plane) const;
+                           VkSubresourceLayout planes[kTeboxMaxPlanes]) const;
 
     bool setColorBufferVulkanMode(uint32_t colorBufferHandle, uint32_t vulkanMode);
     int32_t mapGpaToBufferHandle(uint32_t bufferHandle, uint64_t gpa, uint64_t size = 0);
@@ -755,7 +756,8 @@ class VkEmulation {
     std::mutex mTeboxDeferMutex;
     std::deque<TeboxDeferredMemory> mTeboxDeferredMemory;
     void teboxSetupDmaBufMode(VulkanDispatch* ivk);
-    bool teboxAllocDmaBufMemory(ColorBufferInfo* info, const VkSubresourceLayout& plane);
+    bool teboxAllocDmaBufMemory(ColorBufferInfo* info,
+                                const VkImageDrmFormatModifierExplicitCreateInfoEXT& layout);
 
     vk_util::YcbcrSamplerPool mYcbcrSamplerPool;
 

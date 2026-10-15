@@ -80,13 +80,15 @@ struct cast_camera_header {
  * Messages both ways: struct cast_venc_hdr, then hdr.size payload bytes.
  * The guest sends only virtio-gpu resource ids; tebox-cast reads the pixels
  * from QEMU (res.sock, virtio-gpu-rutabaga.c) and encodes them on the host.
+ * Several encoders share the port: every payload starts with the guest's
+ * session id, and each session has its own host encoder.
  * Multi-byte fields are little-endian (both ends are ARM64). */
 #define CAST_VENC_MAGIC 0x434e4556u /* 'VENC' */
 
 enum cast_venc_type {
     CAST_VENC_CONFIG = 1,     /* guest -> host: struct cast_venc_config */
     CAST_VENC_FRAME = 2,      /* guest -> host: struct cast_venc_frame */
-    CAST_VENC_CLOSE = 3,      /* guest -> host: end the session */
+    CAST_VENC_CLOSE = 3,      /* guest -> host: u32 session; end it */
     CAST_VENC_BITSTREAM = 16, /* host -> guest: struct cast_venc_out + H.264 */
 };
 
@@ -99,6 +101,7 @@ struct cast_venc_hdr {
 } __attribute__((packed));
 
 struct cast_venc_config {
+    uint32_t session;
     uint32_t width;
     uint32_t height;
     uint32_t bitrate;   /* bits/s */
@@ -107,6 +110,7 @@ struct cast_venc_config {
 } __attribute__((packed));
 
 struct cast_venc_frame {
+    uint32_t session;
     uint64_t index;     /* submission order; echoed in the reply */
     int64_t pts_us;
     uint32_t resource_id;
@@ -119,10 +123,76 @@ struct cast_venc_frame {
 /* One reply per frame, in order; size 0 = the encoder held the frame back
  * or failed (status < 0). Annex-B with SPS/PPS before each IDR. */
 struct cast_venc_out {
+    uint32_t session;
     uint64_t index;
     int64_t pts_us;
     int32_t status;
     uint32_t flags;
+} __attribute__((packed));
+
+/* Host video decoder for the guest Codec2 HAL: virtio-serial port tebox.vdec
+ * (vdec.sock). The guest sends the bitstream and empty RGBA output buffers
+ * (virtio-gpu resource ids); tebox-cast decodes on the host hardware decoder
+ * and QEMU renders each picture into an output buffer on the GPU (blit.sock,
+ * virtio-gpu-rutabaga.c). Same header and endianness as VENC. Several
+ * decoders share the port: every payload starts with the guest's session id
+ * (FLUSH, CLOSE and FLUSHED carry only that) and each session has its own
+ * host decoder. */
+#define CAST_VDEC_MAGIC 0x43454456u /* 'VDEC' */
+
+enum cast_vdec_type {
+    CAST_VDEC_CONFIG = 1,  /* guest -> host: struct cast_vdec_config */
+    CAST_VDEC_INPUT = 2,   /* guest -> host: struct cast_vdec_input + bitstream */
+    CAST_VDEC_OUTPUT = 3,  /* guest -> host: struct cast_vdec_output (empty buffer) */
+    CAST_VDEC_FLUSH = 4,   /* guest -> host: drop queued input, pictures and buffers */
+    CAST_VDEC_CLOSE = 5,   /* guest -> host: end the session */
+    CAST_VDEC_PICTURE = 16, /* host -> guest: struct cast_vdec_picture */
+    CAST_VDEC_FLUSHED = 17, /* host -> guest: FLUSH done; every buffer is back */
+};
+
+struct cast_vdec_hdr {
+    uint32_t magic;
+    uint32_t type;
+    uint32_t size;
+} __attribute__((packed));
+
+#define CAST_VDEC_FLAG_EOS 0x01u    /* INPUT: last one; PICTURE: no more follow */
+#define CAST_VDEC_FLAG_CONFIG 0x02u /* INPUT: codec config (CSD) only */
+
+struct cast_vdec_config {
+    uint32_t session;
+    uint32_t codec;  /* V4L2 fourcc: 'HEVC', 'H264', 'VP90', 'AV01' */
+    uint32_t width;  /* hint; the stream decides */
+    uint32_t height;
+} __attribute__((packed));
+
+/* hdr.size = sizeof(struct cast_vdec_input) + bitstream bytes */
+struct cast_vdec_input {
+    uint32_t session;
+    uint64_t index;  /* guest frame index, echoed by the pictures it produces */
+    int64_t pts_us;
+    uint32_t flags;
+} __attribute__((packed));
+
+struct cast_vdec_output {
+    uint32_t session;
+    uint64_t id;          /* guest handle, echoed in the picture */
+    uint32_t resource_id; /* RGBA virtio-gpu resource */
+    uint32_t width;
+    uint32_t height;
+} __attribute__((packed));
+
+/* A decoded picture, rendered into output |id| (or none: status < 0, or an
+ * EOS marker with id 0). Pictures come in display order. */
+struct cast_vdec_picture {
+    uint32_t session;
+    uint64_t id;
+    uint64_t index;
+    int64_t pts_us;
+    int32_t status;
+    uint32_t flags;
+    uint32_t width;   /* visible size */
+    uint32_t height;
 } __attribute__((packed));
 
 const char *cast_codec_name(enum cast_codec c);

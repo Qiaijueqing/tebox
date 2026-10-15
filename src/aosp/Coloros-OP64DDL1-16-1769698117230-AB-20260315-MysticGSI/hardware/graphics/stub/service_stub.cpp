@@ -688,6 +688,17 @@ static int gbmCreate(uint32_t width,uint32_t height,int format,bool cpuWrite,uin
     gbm_bo_destroy(bo);return fd;
 }
 
+// HAL_PIXEL_FORMAT_YV12 usage that needs the GPU: TEXTURE | RENDER | COMPOSER.
+constexpr int64_t kGpuUse = 0x100 | 0x200 | 0x800;
+
+// GPU YV12 (a gfxstream YV12 resource the guest samples directly); set
+// debug.tebox.yv12_gpu=0 to refuse it instead.
+static bool yv12GpuEnabled() {
+    char value[PROP_VALUE_MAX] = "";
+    __system_property_get("debug.tebox.yv12_gpu", value);
+    return strcmp(value, "0") != 0;
+}
+
 class StubAllocator : public BnAllocator {
   public:
     ScopedAStatus allocate(const std::vector<uint8_t>&, int32_t,
@@ -712,6 +723,12 @@ class StubAllocator : public BnAllocator {
                       static_cast<size_t>(bpp);
         if (static_cast<int>(effective.format) == 35)
             size = size * 3 / 2;
+        const bool yv12 = static_cast<int>(effective.format) == kYv12;
+        if (yv12) {
+            const Yv12Layout l = yv12Layout(effective.width, effective.height);
+            stride = static_cast<int32_t>(l.yStride);
+            size = l.size;
+        }
         if (effective.layerCount > 1) size *= static_cast<size_t>(effective.layerCount);
 
         out->stride = stride;
@@ -721,8 +738,12 @@ class StubAllocator : public BnAllocator {
         for (int32_t i = 0; i < count; ++i) {
             int fd = -1;
             uint32_t drm_stride = 0, drm_size = 0;
+            // YV12: a gfxstream YV12 resource for GPU users when enabled (see
+            // isSupported), CPU memory otherwise.
             const bool cpuOnly = static_cast<int>(effective.format) == 35 ||
-                                 static_cast<int>(effective.format) == 0x21;
+                                 static_cast<int>(effective.format) == 0x21 ||
+                                 (yv12 && !(yv12GpuEnabled() && qemuGpuIsGfxstream() &&
+                                            (static_cast<int64_t>(effective.usage) & kGpuUse)));
             const bool gfx = qemuGpuIsGfxstream() && !cpuOnly &&
                              virglFormat(static_cast<int>(effective.format));
             const bool virgl = !gfx && qemuGbmUsesVirgl() && !cpuOnly;
@@ -767,15 +788,28 @@ class StubAllocator : public BnAllocator {
                 for (int p = 1; p < TEBOX_CROS_MAX_FDS; ++p) cros.fds[p] = -1;
                 cros.strides[0] = static_cast<uint32_t>(stride * bpp);
                 cros.sizes[0] = static_cast<uint32_t>(size);
+                cros.num_planes = 1;
+                if (yv12) {
+                    const Yv12Layout l = yv12Layout(effective.width, effective.height);
+                    cros.strides[1] = cros.strides[2] = l.cStride;
+                    cros.offsets[1] = l.ySize;
+                    cros.offsets[2] = l.ySize + l.cSize;
+                    cros.sizes[0] = l.ySize;
+                    cros.sizes[1] = cros.sizes[2] = l.cSize;
+                    cros.num_planes = 3;
+                }
                 cros.width = static_cast<uint32_t>(effective.width);
                 cros.height = static_cast<uint32_t>(effective.height);
                 cros.format = bufferFormat(static_cast<int>(effective.format)).fourcc;
+                // The host uploads YV12 as Y, Cb, Cr planes (it reorders the
+                // Android layout); the guest Vulkan driver swaps chroma for a
+                // YVU fourcc, so declare the YUV order it ends up in.
+                if (yv12) cros.format = fourcc('Y', 'U', '1', '2');
                 cros.use_flags = static_cast<uint64_t>(effective.usage);
                 cros.magic = TEBOX_CROS_MAGIC;
                 cros.pixel_stride = static_cast<uint32_t>(stride);
                 cros.droid_format = static_cast<int32_t>(effective.format);
                 cros.usage = static_cast<int32_t>(static_cast<int64_t>(effective.usage));
-                cros.num_planes = 1;
                 cros.total_size = size;
                 const int* ints = reinterpret_cast<const int*>(&cros.fds[1]);
                 h.ints.assign(ints, ints + TEBOX_CROS_NUM_INTS);
@@ -803,7 +837,14 @@ class StubAllocator : public BnAllocator {
         // BLOB buffers are width bytes x 1 row (camera JPEG: several MB).
         const bool blob = static_cast<int>(desc.format) == 0x21;
         const int32_t maxWidth = blob ? (64 << 20) : 16384;
-        *out = fmt_ok && desc.width > 0 && desc.height > 0 &&
+        // YV12 for GPU / composer use (a CPU-decoding app's Surface) is a
+        // gfxstream YV12 resource; only VirGL (or yv12_gpu=0) refuses it, so
+        // a software decoder fails cleanly instead of SurfaceFlinger aborting
+        // on a buffer it cannot sample. CPU users always get YV12.
+        const bool yv12Gpu = static_cast<int>(desc.format) == kYv12 &&
+                             (static_cast<int64_t>(desc.usage) & kGpuUse) != 0 &&
+                             !(yv12GpuEnabled() && qemuGpuIsGfxstream());
+        *out = fmt_ok && !yv12Gpu && desc.width > 0 && desc.height > 0 &&
                desc.width <= maxWidth && desc.height <= (blob ? 1 : 16384) && desc.layerCount == 1 &&
                !(static_cast<int64_t>(desc.usage) & (1LL << 14)) &&
                desc.additionalOptions.empty();

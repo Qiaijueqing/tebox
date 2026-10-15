@@ -37,3 +37,7 @@ dalvik.vm.heapsize=512m
 dalvik.vm.heaptargetutilization=0.75
 dalvik.vm.heapminfree=2m
 dalvik.vm.heapmaxfree=8m
+
+# ColorOS system/build.prop lists only AVC vendor Codec2 components
+# (debug.stagefright.ccodec=1); keep every one, c2.tebox.hevc.decoder too.
+debug.stagefright.ccodec=4

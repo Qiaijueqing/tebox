@@ -3365,14 +3365,14 @@ class VkDecoderGlobalState::Impl {
             // give it the ColorBuffer's explicit linear layout.
             VkImageCreateInfo teboxCi;
             VkImageDrmFormatModifierExplicitCreateInfoEXT teboxExplicitCi;
-            VkSubresourceLayout teboxPlane;
+            VkSubresourceLayout teboxPlanes[VkEmulation::kTeboxMaxPlanes];
             const auto* teboxExt = vk_find_struct<VkExternalMemoryImageCreateInfo>(pCreateInfo);
             if (m_vkEmulation->teboxDmaBufMode() && teboxExt &&
                 (teboxExt->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) &&
                 pCreateInfo->tiling != VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT) {
                 teboxCi = *pCreateInfo;
                 if (m_vkEmulation->teboxDmaBufLayout(&teboxCi, teboxCi.extent.width,
-                                                     &teboxExplicitCi, &teboxPlane)) {
+                                                     &teboxExplicitCi, teboxPlanes)) {
                     vk_insert_struct(teboxCi, teboxExplicitCi);
                     pCreateInfo = &teboxCi;
                 }

@@ -123,6 +123,7 @@ for f in \
   "$HAL/soft/Configurable.cpp" \
   "$HAL/soft/ComponentInterface.cpp" \
   "$HAL/soft/MesaAvcComponent.cpp" \
+  "$HAL/soft/HostDecComponent.cpp" \
   "$HAL/soft/ComponentStore.cpp" \
   "$HAL/soft/service.cpp"; do
   compile_one "$f"

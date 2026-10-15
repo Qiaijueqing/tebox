@@ -218,10 +218,10 @@ std::unique_ptr<AndroidNativeBufferInfo> AndroidNativeBufferInfo::create(
         // tebox (local): the ColorBuffer is an explicit linear DRM modifier
         // image; alias it with the same layout.
         VkImageDrmFormatModifierExplicitCreateInfoEXT teboxExplicitCi;
-        VkSubresourceLayout teboxPlane;
+        VkSubresourceLayout teboxPlanes[VkEmulation::kTeboxMaxPlanes];
         if (importedColorBufferInfo.teboxRowPitch &&
             emu->teboxDmaBufLayout(&createImageCi, importedColorBufferInfo.width,
-                                   &teboxExplicitCi, &teboxPlane)) {
+                                   &teboxExplicitCi, teboxPlanes)) {
             vk_insert_struct(createImageCi, teboxExplicitCi);
         }
 

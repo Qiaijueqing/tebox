@@ -3,6 +3,7 @@
 #include "ComponentInterface.h"
 #include "Configurable.h"
 #include "MesaAvcComponent.h"
+#include "HostDecComponent.h"
 #include "mesa_pipe_video.h"
 
 #include <aidl/android/hardware/media/c2/Status.h>
@@ -61,14 +62,25 @@ constexpr const char* kDecName = "c2.mesa.avc.decoder";
 constexpr const char* kEncName = "c2.mesa.avc.encoder";
 constexpr const char* kMime = "video/avc";
 
+// Host hardware decoders (gfxstream): name, media type, V4L2 fourcc.
+struct HostDecoder {
+    const char* name;
+    const char* mime;
+    uint32_t codec;
+};
+constexpr HostDecoder kHostDecoders[] = {
+    {"c2.tebox.hevc.decoder", "video/hevc", 0x43564548u /* 'HEVC' */},
+    {"c2.tebox.avc.decoder", "video/avc", 0x34363248u /* 'H264' */},
+};
+
 IComponentStore::ComponentTraits makeTraits(const char* name, IComponentStore::ComponentTraits::Kind kind,
-                                            int rank) {
+                                            int rank, const char* mime = kMime) {
     IComponentStore::ComponentTraits t;
     t.name = name;
     t.domain = IComponentStore::ComponentTraits::Domain::VIDEO;
     t.kind = kind;
     t.rank = rank;
-    t.mediaType = kMime;
+    t.mediaType = mime;
     t.aliases = {};
     return t;
 }
@@ -104,8 +116,28 @@ ComponentStore::ComponentStore() {
         d.kind = MesaCodecKind::kEncoder;
         mCatalog[kEncName] = d;
     }
+    addHostDecoders();
     ALOGI("catalog size=%zu (caps dec=%d enc=%d)", mCatalog.size(),
           caps.avc_decode ? 1 : 0, caps.avc_encode ? 1 : 0);
+}
+
+// gfxstream: the host V4L2 decoder decodes into the guest's buffers
+// (tebox.vdec). Ranked ahead of the software decoders. QEMU names the
+// virtio-serial ports after the guest driver is up, so the port may appear
+// after this HAL starts: callers retry until it does.
+void ComponentStore::addHostDecoders() {
+    std::lock_guard<std::mutex> lock(mLock);
+    if (mHostDecoders || !HostDecComponent::available()) return;
+    for (const HostDecoder& dec : kHostDecoders) {
+        ComponentDesc d;
+        d.traits = makeTraits(dec.name, IComponentStore::ComponentTraits::Kind::DECODER, 16,
+                              dec.mime);
+        d.kind = MesaCodecKind::kDecoder;
+        d.hostCodec = dec.codec;
+        mCatalog[dec.name] = d;
+    }
+    mHostDecoders = true;
+    ALOGI("host decoders available (tebox.vdec)");
 }
 
 std::shared_ptr<Configurable> ComponentStore::storeConfigurable() {
@@ -116,29 +148,41 @@ std::shared_ptr<Configurable> ComponentStore::storeConfigurable() {
     return mStoreCfg;
 }
 
+bool ComponentStore::hasComponent(const std::string& name) {
+    std::lock_guard<std::mutex> lock(mLock);
+    return mCatalog.find(name) != mCatalog.end();
+}
+
 std::shared_ptr<Configurable> ComponentStore::interfaceFor(const std::string& name) {
     std::lock_guard<std::mutex> lock(mLock);
     auto it = mInterfaces.find(name);
     if (it != mInterfaces.end()) return it->second;
     int32_t id = mNextId++;
-    auto cfg = SharedRefBase::make<Configurable>(id, name);
+    auto desc = mCatalog.find(name);
+    const bool host = desc != mCatalog.end() && desc->second.hostCodec;
+    auto cfg = host ? SharedRefBase::make<Configurable>(id, name, true,
+                                                        desc->second.traits.mediaType)
+                    : SharedRefBase::make<Configurable>(id, name);
     mInterfaces[name] = cfg;
     return cfg;
 }
 
 ScopedAStatus ComponentStore::listComponents(
         std::vector<IComponentStore::ComponentTraits>* out) {
+    addHostDecoders();
     out->clear();
+    std::lock_guard<std::mutex> lock(mLock);
     for (const auto& [name, desc] : mCatalog) {
-        (void)name;
         out->push_back(desc.traits);
+        ALOGI("listComponents: %s (%s)", name.c_str(), desc.traits.mediaType.c_str());
     }
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus ComponentStore::createInterface(const std::string& name,
                                             std::shared_ptr<IComponentInterface>* out) {
-    if (mCatalog.find(name) == mCatalog.end()) {
+    addHostDecoders();
+    if (!hasComponent(name)) {
         return ScopedAStatus::fromServiceSpecificError(Status::NOT_FOUND);
     }
     auto cfg = interfaceFor(name);
@@ -149,13 +193,23 @@ ScopedAStatus ComponentStore::createInterface(const std::string& name,
 ScopedAStatus ComponentStore::createComponent(
         const std::string& name, const std::shared_ptr<IComponentListener>& listener,
         const std::shared_ptr<IClientManager>& /*pool*/, std::shared_ptr<IComponent>* out) {
-    auto it = mCatalog.find(name);
-    if (it == mCatalog.end()) {
-        return ScopedAStatus::fromServiceSpecificError(Status::NOT_FOUND);
+    addHostDecoders();
+    ComponentDesc desc;
+    {
+        std::lock_guard<std::mutex> lock(mLock);
+        auto it = mCatalog.find(name);
+        if (it == mCatalog.end()) {
+            return ScopedAStatus::fromServiceSpecificError(Status::NOT_FOUND);
+        }
+        desc = it->second;
     }
     auto cfg = interfaceFor(name);
     auto intf = SharedRefBase::make<ComponentInterface>(cfg->id(), name, cfg);
-    auto comp = SharedRefBase::make<MesaAvcComponent>(it->second.kind, name, intf, cfg, listener);
+    if (desc.hostCodec) {
+        *out = SharedRefBase::make<HostDecComponent>(name, desc.hostCodec, intf, cfg, listener);
+        return ScopedAStatus::ok();
+    }
+    auto comp = SharedRefBase::make<MesaAvcComponent>(desc.kind, name, intf, cfg, listener);
     *out = comp;
     return ScopedAStatus::ok();
 }
@@ -191,8 +245,10 @@ ScopedAStatus ComponentStore::getStructDescriptors(
         }
         return false;
     };
-    // component.kind / component.domain: C2SimpleValueStruct<uint32 enum>.
-    for (uint32_t core : {0x804u, 0x805u}) {
+    // component.kind / component.domain: C2SimpleValueStruct<uint32 enum>;
+    // raw.pixel-format (decoders): C2Uint32Value. Every advertised param
+    // needs one: the client dereferences the first descriptor it gets back.
+    for (uint32_t core : {0x804u, 0x805u, 0x1802u}) {
         if (!requested(core)) continue;
         StructDescriptor d;
         d.type = static_cast<int32_t>(core);

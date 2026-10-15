@@ -52,16 +52,20 @@ private:
     struct ComponentDesc {
         aidl::android::hardware::media::c2::IComponentStore::ComponentTraits traits;
         MesaCodecKind kind;
+        uint32_t hostCodec = 0;  // V4L2 fourcc: decoded by the host (HostDecComponent)
     };
 
     std::shared_ptr<Configurable> storeConfigurable();
+    void addHostDecoders();
+    bool hasComponent(const std::string& name);
     std::shared_ptr<Configurable> interfaceFor(const std::string& name);
 
     std::mutex mLock;
     std::shared_ptr<Configurable> mStoreCfg;
     int32_t mNextId = 1;
     std::map<std::string, std::shared_ptr<Configurable>> mInterfaces;
-    std::map<std::string, ComponentDesc> mCatalog;
+    std::map<std::string, ComponentDesc> mCatalog;  // guarded by mLock
+    bool mHostDecoders = false;
 };
 
 }  // namespace gki

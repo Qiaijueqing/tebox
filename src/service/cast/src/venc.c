@@ -5,7 +5,10 @@
  * guest: QEMU reads that gfxstream ColorBuffer into a buffer shared with us
  * (res.sock, virtio-gpu-rutabaga.c), the regular cast encoder turns it into
  * H.264 on the host hardware encoder, and the bitstream goes back on the
- * same port. One reply per frame, in submission order.
+ * same port. One reply per frame, in submission order per session.
+ * Several guest encoders (two screen-cast clients, say) run at once: every
+ * message carries the guest's session id and each session has its own host
+ * encoder.
  */
 #include "cast/venc.h"
 #include "cast/encoder.h"
@@ -26,6 +29,7 @@
 #define RES_MAGIC 0x53455254u     /* 'TRES', virtio-gpu-rutabaga.c */
 #define RES_DMABUF_MAGIC 0x44455254u /* 'TRED': the ColorBuffer's dma-buf */
 #define MAX_PAYLOAD (1u << 20)
+#define MAX_SESSIONS 8
 
 struct res_req {
     uint32_t magic, resource_id, width, height;
@@ -33,6 +37,14 @@ struct res_req {
 struct res_rep {
     int32_t status;
     uint32_t stride;
+};
+
+struct venc_session {
+    uint32_t id;
+    bool used;
+    uint64_t last_use;  /* for evicting the least recently used */
+    struct cast_encoder *enc;
+    struct cast_encoder_cfg cfg;
 };
 
 struct cast_venc {
@@ -44,8 +56,8 @@ struct cast_venc {
     int venc_fd, res_fd;
     bool no_dmabuf; /* QEMU/gfxstream cannot export the frames */
     uint8_t *buf;
-    struct cast_encoder *enc;
-    struct cast_encoder_cfg cfg;
+    struct venc_session sessions[MAX_SESSIONS];
+    uint64_t clock;
 };
 
 static int dial(const char *path)
@@ -206,15 +218,35 @@ static bool send_out(struct cast_venc *v, const struct cast_venc_frame *f, int32
 {
     struct cast_venc_hdr hdr = { CAST_VENC_MAGIC, CAST_VENC_BITSTREAM,
                                  (uint32_t)(sizeof(struct cast_venc_out) + size) };
-    struct cast_venc_out out = { f->index, f->pts_us, status, flags };
+    struct cast_venc_out out = { f->session, f->index, f->pts_us, status, flags };
 
     return write_full(v->venc_fd, &hdr, sizeof(hdr)) &&
            write_full(v->venc_fd, &out, sizeof(out)) &&
            (!size || write_full(v->venc_fd, data, size));
 }
 
+static struct venc_session *find_session(struct cast_venc *v, uint32_t id)
+{
+    for (unsigned i = 0; i < MAX_SESSIONS; ++i) {
+        if (v->sessions[i].used && v->sessions[i].id == id) return &v->sessions[i];
+    }
+    return NULL;
+}
+
+static void end_session(struct venc_session *s)
+{
+    if (s->enc) cast_encoder_destroy(s->enc);
+    memset(s, 0, sizeof(*s));
+}
+
+static void end_all(struct cast_venc *v)
+{
+    for (unsigned i = 0; i < MAX_SESSIONS; ++i) end_session(&v->sessions[i]);
+}
+
 static void encode_frame(struct cast_venc *v, const struct cast_venc_frame *f)
 {
+    struct venc_session *s = find_session(v, f->session);
     struct cast_packet *pkts = NULL;
     int n = 0, stride = 0, rc = -EINVAL, dmabuf;
     uint32_t fmt = f->format == 5 ? CAST_FMT_BGRA8888 : CAST_FMT_RGBA8888;
@@ -222,15 +254,17 @@ static void encode_frame(struct cast_venc *v, const struct cast_venc_frame *f)
     size_t joined_len = 0;
     uint32_t flags = 0;
 
-    if (!v->enc || f->width != (uint32_t)v->cfg.width || f->height != (uint32_t)v->cfg.height) {
+    if (!s || !s->enc || f->width != (uint32_t)s->cfg.width ||
+        f->height != (uint32_t)s->cfg.height) {
         send_out(v, f, -EINVAL, 0, NULL, 0);
         return;
     }
-    if (f->flags & CAST_VENC_FLAG_KEY) cast_encoder_force_idr(v->enc);
+    s->last_use = ++v->clock;
+    if (f->flags & CAST_VENC_FLAG_KEY) cast_encoder_force_idr(s->enc);
     dmabuf = res_dmabuf(v, f->resource_id, f->width, f->height, &stride);
     if (dmabuf >= 0) {
         /* The VPU reads the gfxstream ColorBuffer in place. */
-        rc = cast_encoder_push_dmabuf(v->enc, fmt, dmabuf, (int)f->width, (int)f->height,
+        rc = cast_encoder_push_dmabuf(s->enc, fmt, dmabuf, (int)f->width, (int)f->height,
                                       stride, (uint64_t)f->pts_us, &pkts, &n);
         close(dmabuf);
     } else {
@@ -239,7 +273,7 @@ static void encode_frame(struct cast_venc *v, const struct cast_venc_frame *f)
             send_out(v, f, -EIO, 0, NULL, 0);
             return;
         }
-        rc = cast_encoder_push(v->enc, fmt, v->buf, (int)f->width, (int)f->height, stride,
+        rc = cast_encoder_push(s->enc, fmt, v->buf, (int)f->width, (int)f->height, stride,
                                (uint64_t)f->pts_us, &pkts, &n);
     }
     if (rc == 0) {
@@ -261,8 +295,23 @@ static void encode_frame(struct cast_venc *v, const struct cast_venc_frame *f)
 static void configure(struct cast_venc *v, const struct cast_venc_config *c)
 {
     struct cast_encoder_cfg cfg = { 0 };
+    struct venc_session *s = find_session(v, c->session);
 
-    if (v->enc) cast_encoder_destroy(v->enc);
+    if (!s) {
+        /* A free slot, or the least recently used session (a guest client
+         * that went away without closing). */
+        for (unsigned i = 0; i < MAX_SESSIONS && !s; ++i) {
+            if (!v->sessions[i].used) s = &v->sessions[i];
+        }
+        if (!s) {
+            s = &v->sessions[0];
+            for (unsigned i = 1; i < MAX_SESSIONS; ++i) {
+                if (v->sessions[i].last_use < s->last_use) s = &v->sessions[i];
+            }
+            fprintf(stderr, "venc: evicting session %u\n", s->id);
+        }
+    }
+    end_session(s);
     cfg.codec = CAST_CODEC_H264;
     cfg.width = (int)c->width;
     cfg.height = (int)c->height;
@@ -270,11 +319,14 @@ static void configure(struct cast_venc *v, const struct cast_venc_config *c)
     cfg.bitrate = c->bitrate ? c->bitrate : 8000000;
     cfg.gop_sec = c->gop_sec ? (int)c->gop_sec : 2;
     cfg.prefer_hw = true;
-    v->cfg = cfg;
-    v->enc = cast_encoder_create(&cfg);
-    fprintf(stderr, "venc: session %ux%u %u kbit/s %u fps encoder=%s\n", c->width, c->height,
-            (unsigned)(cfg.bitrate / 1000), (unsigned)cfg.fps,
-            v->enc ? cast_encoder_name(v->enc) : "(none)");
+    s->used = true;
+    s->id = c->session;
+    s->last_use = ++v->clock;
+    s->cfg = cfg;
+    s->enc = cast_encoder_create(&cfg);
+    fprintf(stderr, "venc: session %u %ux%u %u kbit/s %u fps encoder=%s\n", c->session,
+            c->width, c->height, (unsigned)(cfg.bitrate / 1000), (unsigned)cfg.fps,
+            s->enc ? cast_encoder_name(s->enc) : "(none)");
 }
 
 static void *venc_thread(void *opaque)
@@ -297,21 +349,20 @@ static void *venc_thread(void *opaque)
             /* QEMU went away or the stream desynced: start over. */
             close(v->venc_fd);
             v->venc_fd = -1;
-            if (v->enc) {
-                cast_encoder_destroy(v->enc);
-                v->enc = NULL;
-            }
+            end_all(v);
             continue;
         }
         if (hdr.type == CAST_VENC_CONFIG && hdr.size >= sizeof(struct cast_venc_config)) {
             configure(v, (const struct cast_venc_config *)payload);
         } else if (hdr.type == CAST_VENC_FRAME && hdr.size >= sizeof(struct cast_venc_frame)) {
             encode_frame(v, (const struct cast_venc_frame *)payload);
-        } else if (hdr.type == CAST_VENC_CLOSE) {
-            if (v->enc) {
-                cast_encoder_destroy(v->enc);
-                v->enc = NULL;
-            }
+        } else if (hdr.type == CAST_VENC_CLOSE && hdr.size >= sizeof(uint32_t)) {
+            uint32_t id;
+            struct venc_session *s;
+
+            memcpy(&id, payload, sizeof(id));
+            s = find_session(v, id);
+            if (s) end_session(s);
         }
     }
     free(payload);
@@ -343,7 +394,7 @@ void cast_venc_stop(struct cast_venc *v)
     pthread_join(v->thread, NULL);
     if (v->venc_fd >= 0) close(v->venc_fd);
     if (v->res_fd >= 0) close(v->res_fd);
-    if (v->enc) cast_encoder_destroy(v->enc);
+    end_all(v);
     if (v->buf) munmap(v->buf, VENC_BUF_SIZE);
     free(v);
 }

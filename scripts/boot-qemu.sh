@@ -76,7 +76,8 @@ fi
 
 if [[ ! -f "$WORKDIR/userdata.img" ]]; then
   # Sparse: host space grows with guest data, not with the configured size.
-  dd if=/dev/zero of="$WORKDIR/userdata.img" bs=1048576 count=0 seek="${USERDATA_MB:-1024}" status=none
+  # Vendor ROMs install ~700 MB of apps on first boot; 1 GiB fills up.
+  dd if=/dev/zero of="$WORKDIR/userdata.img" bs=1048576 count=0 seek="${USERDATA_MB:-8192}" status=none
   "$E2/mke2fs" -t ext4 -F -L userdata -O quota,project \
     -E quotatype=usrquota:grpquota:prjquota "$WORKDIR/userdata.img"
 fi
@@ -267,6 +268,13 @@ if [[ "${TEBOX_CAST:-0}" == 1 ]]; then
     MEDIA_PORTS+=" venc:tebox.venc"
     export TEBOX_RES_SOCK="$MEDIA_DIR/res.sock"
     APPEND+=(androidboot.tebox.video_encode=1)
+    if [[ "$HOST_OS" == linux ]]; then
+      # Decoding the other way round: the guest sends the bitstream over
+      # tebox.vdec, the host V4L2 decoder decodes and QEMU draws each picture
+      # into the guest's output buffer on the GPU (blit.sock).
+      MEDIA_PORTS+=" vdec:tebox.vdec"
+      export TEBOX_BLIT_SOCK="$MEDIA_DIR/blit.sock"
+    fi
   fi
   for port in $MEDIA_PORTS; do
     sock="${port%%:*}"

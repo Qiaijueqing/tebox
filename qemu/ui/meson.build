@@ -106,7 +106,7 @@ if opengl.found()
   opengl_ss.add(gbm, pixman)
   opengl_ss.add(when: [opengl],
                if_true: files('shader.c', 'console-gl.c', 'egl-helpers.c', 'egl-context.c',
-                              'tebox-cast-hook.c'))
+                              'tebox-cast-hook.c', 'tebox-yuv-blit.c'))
   ui_modules += {'opengl' : opengl_ss}
 endif
 

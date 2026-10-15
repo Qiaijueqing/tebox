@@ -115,7 +115,8 @@ private:
     // gfxstream backend: frames go to the host encoder over tebox.venc.
     bool mHost = false;
     int mHostFd = -1;
-    uint64_t mHostGen = 0;  // owner generation of the shared tebox.venc port
+    uint32_t mHostSession = 0;  // this encoder's id on the shared tebox.venc port
+    uint64_t mHostIndex = 0;    // next frame index within the session
     unsigned pollFeedback(void* feedback, std::unique_lock<std::mutex>* lock);
     bool createCodec();
 

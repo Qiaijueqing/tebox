@@ -3,6 +3,7 @@
 #include "cast/encoder.h"
 #include "cast/media.h"
 #include "cast/venc.h"
+#include "cast/vdec.h"
 #include "cast/transport.h"
 
 #include <getopt.h>
@@ -16,6 +17,7 @@
 static volatile sig_atomic_t g_run = 1;
 
 static struct cast_venc *g_venc;
+static struct cast_vdec *g_vdec;
 
 struct app {
     struct cast_encoder *enc;
@@ -392,6 +394,8 @@ int main(int argc, char **argv)
         app.media = cast_media_open(media_dir);
         /* Host H.264 encoding for the guest Codec2 HAL (venc.sock/res.sock). */
         g_venc = cast_venc_start(media_dir);
+        /* Host decoding for the guest Codec2 HAL (vdec.sock/blit.sock). */
+        g_vdec = cast_vdec_start(media_dir);
         cast_transport_set_uplink(app.tx, on_uplink, &app);
     }
 
@@ -452,6 +456,7 @@ int main(int argc, char **argv)
 
 out:
     cast_venc_stop(g_venc);
+    cast_vdec_stop(g_vdec);
     cast_media_close(app.media);
     cast_capture_destroy(cap);
     cast_control_destroy(app.ctrl);

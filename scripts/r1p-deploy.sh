@@ -143,8 +143,8 @@ start() {
   local virgl=
   remote "test -f $R1P_DIR/bin/libvirglrenderer.so.1" && \
     virgl="-v $R1P_DIR/bin/libvirglrenderer.so.1:/opt/tebox/prebuilts/host/linux-arm64/virglrenderer/lib/libvirglrenderer.so.1:ro"
-  remote "test -f $R1P_DIR/bin/boot-qemu.sh" && \
-    virgl+=" -v $R1P_DIR/bin/boot-qemu.sh:/opt/tebox/scripts/boot-qemu.sh:ro"
+  # boot-qemu.sh, tebox-api and tebox-cast are copied from the override dir
+  # by cix-r1p-start.sh; mounting one over its target too makes that cp fail.
   remote "test -f $R1P_DIR/bin/cix-r1p-start.sh" && \
     virgl+=" -v $R1P_DIR/bin/cix-r1p-start.sh:/opt/tebox/scripts/cix-r1p-start.sh:ro"
   remote "sudo -A mkdir -p $R1P_USER_IMAGES $R1P_INSTANCE_ROOT"
@@ -152,7 +152,7 @@ start() {
   remote "sudo -A docker run -d --name $R1P_NAME --restart unless-stopped --network host \
     --device /dev/kvm --device /dev/mali0 --device /dev/dri \
     --device /dev/dma_heap/system --device /dev/dma_heap/system-uncached \
-    --device /dev/video1 \
+    --device /dev/video0 --device /dev/video1 \
     -e ADB_PORT=$R1P_ADB_PORT -e MEM=${MEM:-4096} -e SMP=${SMP:-4} \
     -e USERDATA_MB=${USERDATA_MB:-8192} -e R1P_INSTANCE=$R1P_NAME \
     -e TEBOX_GRPC_ADDR=0.0.0.0:$R1P_GRPC_PORT -e TEBOX_CAST_ADDR=0.0.0.0:$R1P_CAST_PORT \

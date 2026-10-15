@@ -29,7 +29,7 @@ done
     -I"$HERE/include" -I"$GEN/include" -I"$ANDROID_HEADERS" \
     -I"$ROOT/thirdparty/system-keymaster/ng/include" \
     -I"$ROOT/thirdparty/system-keymaster/include" \
-    "$HERE/service.cpp" "$HERE/persistent_storage.cpp" \
+    "$HERE/service.cpp" "$HERE/persistent_storage.cpp" "$HERE/root_of_trust.cpp" \
     -nostdlib++ -L"$LIBS" -Wl,-rpath,/system/lib64 -Wl,--export-dynamic \
     -lkeymint_fake_latest -lkeymaster_portable -lbinder_ndk -llog -lc++ \
     -l:android.hardware.security.keymint-V4-ndk.so \

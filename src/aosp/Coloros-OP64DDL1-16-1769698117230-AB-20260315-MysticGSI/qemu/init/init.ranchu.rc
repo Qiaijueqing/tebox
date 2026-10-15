@@ -162,3 +162,22 @@ on property:debug.tebox.prof=1 && property:ro.boot.qemu_debug=1
 on property:sys.boot_completed=1
     exec_background u:r:shell:s0 shell shell -- /system/bin/settings put system peak_refresh_rate ${ro.boot.tebox.refresh_hz:-60}
     exec_background u:r:shell:s0 shell shell -- /system/bin/settings put system min_refresh_rate ${ro.boot.tebox.refresh_hz:-60}
+
+# ColorOS framework code that takes system_server down on this VM. Both
+# switches are persistent and set by ColorOS at run time, so once tripped the
+# guest crash-loops across reboots; reset them when loaded or changed.
+# - persist.sys.oplus.anim_level 3/4 (light animation level): starting an
+#   activity pins threads to the biggest CPU cluster (ActivityStarterExtImpl.
+#   setThreadAffinitySuperBigCore); without cpufreq policies there are no
+#   clusters and it indexes -1. Keep the high-performance level.
+# - persist.sys.oppo.fsReserve=1: every battery level change makes
+#   OplusStorageManagerFeature take the /data label from
+#   /dev/block/by-name/<label>; /dev/vdb has no fourth path element.
+on property:persist.sys.oplus.anim_level=3
+    setprop persist.sys.oplus.anim_level 1
+
+on property:persist.sys.oplus.anim_level=4
+    setprop persist.sys.oplus.anim_level 1
+
+on property:persist.sys.oppo.fsReserve=1
+    setprop persist.sys.oppo.fsReserve 0

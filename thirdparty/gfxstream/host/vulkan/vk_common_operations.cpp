@@ -450,23 +450,52 @@ static uint32_t teboxBytesPerPixel(VkFormat format) {
     }
 }
 
+// tebox (local): planes of the 4:2:0 YUV formats a dma-buf ColorBuffer can
+// hold: bytes per sample per plane (the chroma planes are half size).
+static uint32_t teboxYuvPlanes(VkFormat format, uint32_t bytes[VkEmulation::kTeboxMaxPlanes]) {
+    switch (format) {
+        case VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM:  // YV12 / YV21
+            bytes[0] = 1, bytes[1] = 1, bytes[2] = 1;
+            return 3;
+        case VK_FORMAT_G8_B8R8_2PLANE_420_UNORM:  // NV12
+            bytes[0] = 1, bytes[1] = 2;
+            return 2;
+        case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16:  // P010
+            bytes[0] = 2, bytes[1] = 4;
+            return 2;
+        default:
+            return 0;
+    }
+}
+
 bool VkEmulation::teboxDmaBufLayout(VkImageCreateInfo* ci, uint32_t pitchWidth,
                                     VkImageDrmFormatModifierExplicitCreateInfoEXT* explicitCi,
-                                    VkSubresourceLayout* plane) const {
-    const uint32_t bpp = teboxBytesPerPixel(ci->format);
-    if (!teboxDmaBufMode() || !bpp || ci->imageType != VK_IMAGE_TYPE_2D || ci->mipLevels != 1 ||
-        ci->arrayLayers != 1 || ci->samples != VK_SAMPLE_COUNT_1_BIT) {
+                                    VkSubresourceLayout planes[kTeboxMaxPlanes]) const {
+    uint32_t bytes[kTeboxMaxPlanes] = {teboxBytesPerPixel(ci->format)};
+    uint32_t planeCount = bytes[0] ? 1 : teboxYuvPlanes(ci->format, bytes);
+    if (!teboxDmaBufMode() || !planeCount || ci->imageType != VK_IMAGE_TYPE_2D ||
+        ci->mipLevels != 1 || ci->arrayLayers != 1 || ci->samples != VK_SAMPLE_COUNT_1_BIT) {
         return false;
     }
-    *plane = {};
-    plane->rowPitch = ALIGN(static_cast<VkDeviceSize>(pitchWidth) * bpp, 64);  // Mali: 64
-    // size (and array/depth pitch) must be 0 in an explicit layout.
+    // Rows aligned for Mali (64 bytes); planes start on pages. The layout only
+    // depends on format and size, so a guest image bound to a ColorBuffer's
+    // memory gets the same one. size (and array/depth pitch) must be 0.
+    VkDeviceSize offset = 0;
+    for (uint32_t p = 0; p < planeCount; ++p) {
+        const bool chroma = p > 0;
+        const uint32_t width = chroma ? (pitchWidth + 1) / 2 : pitchWidth;
+        const uint32_t height = chroma ? (ci->extent.height + 1) / 2 : ci->extent.height;
+        planes[p] = {};
+        planes[p].offset = offset;
+        planes[p].rowPitch = ALIGN(static_cast<VkDeviceSize>(width) * bytes[p], 64);
+        offset = ALIGN(offset + planes[p].rowPitch * height, static_cast<VkDeviceSize>(4096));
+    }
     *explicitCi = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
         .pNext = nullptr,
         .drmFormatModifier = 0,  // DRM_FORMAT_MOD_LINEAR
-        .drmFormatModifierPlaneCount = 1,
-        .pPlaneLayouts = plane,
+        .drmFormatModifierPlaneCount = planeCount,
+        .pPlaneLayouts = planes,
     };
     ci->tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
     return true;
@@ -526,12 +555,18 @@ void VkEmulation::teboxFlushDeferredFrees(VkDevice device) {
     }
 }
 
-bool VkEmulation::teboxAllocDmaBufMemory(ColorBufferInfo* info, const VkSubresourceLayout& plane) {
+bool VkEmulation::teboxAllocDmaBufMemory(
+    ColorBufferInfo* info, const VkImageDrmFormatModifierExplicitCreateInfoEXT& layout) {
 #if defined(__linux__)
     auto vk = mDvk;
-    const uint64_t size =
-        ALIGN(std::max<uint64_t>(info->imageMemReqs.size, plane.rowPitch * info->height),
-              static_cast<uint64_t>(kPageSize));
+    // The last plane ends the image (the chroma planes are half height).
+    const VkSubresourceLayout& last = layout.pPlaneLayouts[layout.drmFormatModifierPlaneCount - 1];
+    const uint32_t lastHeight =
+        layout.drmFormatModifierPlaneCount > 1 ? (info->height + 1) / 2 : info->height;
+    const uint64_t size = ALIGN(std::max<uint64_t>(info->imageMemReqs.size,
+                                                   last.offset + last.rowPitch * lastHeight),
+                                static_cast<uint64_t>(kPageSize));
+    const VkSubresourceLayout& plane = layout.pPlaneLayouts[0];
     struct dma_heap_allocation_data alloc = {};
     alloc.len = size;
     alloc.fd_flags = O_RDWR | O_CLOEXEC;
@@ -596,7 +631,7 @@ bool VkEmulation::teboxAllocDmaBufMemory(ColorBufferInfo* info, const VkSubresou
     return true;
 #else
     (void)info;
-    (void)plane;
+    (void)layout;
     return false;
 #endif
 }
@@ -758,7 +793,9 @@ bool VkEmulation::populateImageFormatExternalMemorySupportInfo(VulkanDispatch* v
         .drmFormatModifier = 0,  // DRM_FORMAT_MOD_LINEAR
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
-    const bool teboxDmaBuf = teboxDmaBufMode() && teboxBytesPerPixel(info->format) != 0;
+    uint32_t teboxPlaneBytes[kTeboxMaxPlanes];
+    const bool teboxDmaBuf = teboxDmaBufMode() && (teboxBytesPerPixel(info->format) != 0 ||
+                                                   teboxYuvPlanes(info->format, teboxPlaneBytes));
     if (supportsExternalMemory() && (!teboxDmaBufMode() || teboxDmaBuf)) {
         extInfo.handleType = getDefaultExternalMemoryHandleType();
 
@@ -3386,9 +3423,9 @@ bool VkEmulation::createVkColorBufferLocked(uint32_t width, uint32_t height,
 
     // tebox (local): dma-buf heap backing, see teboxDmaBufMode().
     VkImageDrmFormatModifierExplicitCreateInfoEXT teboxExplicitCi;
-    VkSubresourceLayout teboxPlane;
+    VkSubresourceLayout teboxPlanes[kTeboxMaxPlanes];
     const bool teboxDmaBuf =
-        teboxDmaBufMode() && teboxDmaBufLayout(imageCi.get(), width, &teboxExplicitCi, &teboxPlane);
+        teboxDmaBufMode() && teboxDmaBufLayout(imageCi.get(), width, &teboxExplicitCi, teboxPlanes);
 
     // Create the image
     VkExternalMemoryImageCreateInfo extImageCi = {
@@ -3474,7 +3511,7 @@ bool VkEmulation::createVkColorBufferLocked(uint32_t width, uint32_t height,
 
     // Allocate (ideally) external memory. Note: This funciton will set ColorBufferInfo::externalMemoryCompatible to denote if the allocation actually resulted in a memory allocation
     // that is external-able.
-    bool allocRes = teboxDmaBuf ? teboxAllocDmaBufMemory(infoPtr, teboxPlane)
+    bool allocRes = teboxDmaBuf ? teboxAllocDmaBufMemory(infoPtr, teboxExplicitCi)
                                 : allocExternalMemory(vk, &infoPtr->memory, deviceAlignment,
                                                       kNullopt, dedicatedImage, infoPtr);
     if (!allocRes) {
@@ -4483,7 +4520,37 @@ bool VkEmulation::updateColorBufferFromBytesLocked(uint32_t colorBufferHandle, u
 
     // Copy the data into the staging memory first.
     void* stagingBufferPtr = mStaging.mMappedPtr;
-    if (colorBufferInfo->format != colorBufferInfo->internalFormat) {
+    if ((colorBufferInfo->format == GfxstreamFormat::YV12 ||
+         colorBufferInfo->format == GfxstreamFormat::YV21) &&
+        bufferImageCopies.size() == 3) {
+        // tebox (local): virtio-gpu guests hand over the Android layout that
+        // GetTransferSize() sizes: Y rows aligned to 32 bytes, chroma rows half
+        // of that, and YV12 stores Cr before Cb. The 3-plane image wants
+        // tightly packed Y, Cb, Cr (planes 0, 1, 2).
+        const uint32_t yStride = (w + 31) & ~31u;
+        const uint32_t cStride = yStride / 2;
+        const size_t ySize = size_t(yStride) * h;
+        const size_t cSize = size_t(cStride) * (h / 2);
+        if (inputPixelsSize != 0 && inputPixelsSize < ySize + 2 * cSize) {
+            GFXSTREAM_ERROR("Unexpected contents size when trying to update ColorBuffer:%d, "
+                            "provided:%zu expected at least:%zu",
+                            colorBufferHandle, inputPixelsSize, ySize + 2 * cSize);
+            return false;
+        }
+        const uint8_t* src = static_cast<const uint8_t*>(pixels);
+        const bool crFirst = colorBufferInfo->format == GfxstreamFormat::YV12;
+        const uint8_t* planes[3] = {src, src + ySize + (crFirst ? cSize : 0),
+                                    src + ySize + (crFirst ? 0 : cSize)};
+        const uint32_t strides[3] = {yStride, cStride, cStride};
+        for (int p = 0; p < 3; ++p) {
+            const VkBufferImageCopy& copy = bufferImageCopies[p];
+            uint8_t* dst = static_cast<uint8_t*>(stagingBufferPtr) + copy.bufferOffset;
+            for (uint32_t row = 0; row < copy.imageExtent.height; ++row) {
+                std::memcpy(dst + size_t(row) * copy.bufferRowLength,
+                            planes[p] + size_t(row) * strides[p], copy.imageExtent.width);
+            }
+        }
+    } else if (colorBufferInfo->format != colorBufferInfo->internalFormat) {
         if (colorBufferInfo->format == GfxstreamFormat::R4G4B4A4_UNORM &&
             colorBufferInfo->internalFormat == GfxstreamFormat::B4G4R4A4_UNORM) {
             const size_t expectedInputSize = dstBufferSize;

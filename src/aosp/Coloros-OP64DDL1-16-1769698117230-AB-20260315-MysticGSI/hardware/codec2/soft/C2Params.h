@@ -22,6 +22,13 @@ constexpr uint32_t kParamIndexMediaType = 0x1080c;  // flexible string
 constexpr uint32_t kParamIndexBufferType = 0x81b;
 constexpr uint32_t kParamIndexMime = 0x800 + 5;     // approx; also match via payload scan
 
+constexpr uint32_t kParamIndexPixelFormat = 0x1802;
+constexpr uint32_t kParamIndexProfileLevel = 0x808;
+constexpr uint32_t kParamIndexDelay = 0x80e;
+// C2PortAllocatorsTuning::input (flexible array of allocator ids).
+constexpr uint32_t kInputAllocatorsIndex = 0x40010819u;
+constexpr uint32_t kAllocatorBlob = 19;  // C2PlatformAllocatorStore::BLOB
+
 constexpr uint32_t kIndexMask = 0x0001ffffu;
 
 inline uint32_t coreIndex(uint32_t index) { return index & kIndexMask; }
