@@ -81,6 +81,11 @@ on boot
 on early-init && property:ro.boot.tebox.video_encode=1
     setprop ro.media.xml_variant.codecs _tebox_video
 
+# macOS gfxstream hosts decode on VideoToolbox (tebox.vdec) without the cast
+# encoder; the same XML lists the c2.tebox decoders.
+on early-init && property:ro.boot.tebox.video_decode=1
+    setprop ro.media.xml_variant.codecs _tebox_video
+
 on boot && property:ro.boot.qemu_adb=1
     # QEMU forwards to 10.0.2.15. Keep early ADB reachable; EthernetService
     # subsequently provisions eth0 through DHCP and registers routes and DNS

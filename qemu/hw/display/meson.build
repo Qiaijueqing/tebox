@@ -91,6 +91,16 @@ if config_all_devices.has_key('CONFIG_VIRTIO_GPU')
     virtio_gpu_rutabaga_ss = ss.source_set()
     virtio_gpu_rutabaga_ss.add(when: ['CONFIG_VIRTIO_GPU', rutabaga],
                                if_true: [files('virtio-gpu-rutabaga.c'), pixman])
+    if host_os == 'darwin'
+      # tebox (local): VideoToolbox decoder and encoder for the guest's
+      # tebox.vdec and tebox.venc ports.
+      virtio_gpu_rutabaga_ss.add(when: ['CONFIG_VIRTIO_GPU', rutabaga],
+                                 if_true: [files('tebox-vt-vdec.c', 'tebox-vt-venc.c'),
+                                           dependency('appleframeworks',
+                                                      modules: ['VideoToolbox', 'CoreMedia',
+                                                                'CoreVideo', 'CoreFoundation',
+                                                                'IOSurface'])])
+    endif
     hw_display_modules += {'virtio-gpu-rutabaga': virtio_gpu_rutabaga_ss}
   endif
 endif

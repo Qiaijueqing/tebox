@@ -4848,6 +4848,16 @@ bool FrameBuffer::getColorBufferLinearLayout(HandleType colorBufferHandle, uint6
            mImpl->getEmulationVk().getColorBufferLinearLayout(colorBufferHandle, offset, rowPitch);
 }
 
+bool FrameBuffer::teboxBlitIOSurface(HandleType colorBufferHandle, void* ioSurface) {
+    return mImpl->hasEmulationVk() &&
+           mImpl->getEmulationVk().teboxBlitIOSurface(colorBufferHandle, ioSurface);
+}
+
+bool FrameBuffer::teboxReadIntoIOSurface(HandleType colorBufferHandle, void* ioSurface) {
+    return mImpl->hasEmulationVk() &&
+           mImpl->getEmulationVk().teboxReadIntoIOSurface(colorBufferHandle, ioSurface);
+}
+
 std::optional<BlobDescriptorInfo> FrameBuffer::exportColorBuffer(HandleType colorBufferHandle) {
     return mImpl->exportColorBuffer(colorBufferHandle);
 }

@@ -284,6 +284,43 @@ if [[ "${TEBOX_CAST:-0}" == 1 ]]; then
   done
 fi
 
+# macOS host video: QEMU itself serves tebox.vdec and tebox.venc
+# (hw/display/tebox-vt-{vdec,venc}.c) on VideoToolbox; gfxstream blits between
+# the guest's buffers and VideoToolbox's IOSurfaces on the GPU.
+# TEBOX_VDEC=0 / TEBOX_VENC=0 leave the guest on its software codecs.
+mac_video_port() {  # <sock name> <port name> -> exports the socket path
+  local sock="$MEDIA_DIR/$1.sock"
+  # Unix socket paths are limited to 103 bytes on macOS; long variant names
+  # exceed that, so use a short per-instance name under /tmp instead.
+  if (( ${#sock} > 103 )); then
+    sock="/tmp/tebox-$1-$(printf '%s' "$MEDIA_DIR" | cksum | cut -d' ' -f1).sock"
+  fi
+  rm -f "$sock"
+  EXTRA+=(-chardev "socket,id=$1,path=$sock,server=on,wait=off"
+    -device "virtserialport,bus=media.0,chardev=$1,name=$2")
+  MAC_VIDEO_SOCK="$sock"
+}
+if [[ "$HOST_OS" == darwin && "$FORCE_RUTABAGA" == 1 &&
+      ( "${TEBOX_VDEC:-1}" == 1 || "${TEBOX_VENC:-1}" == 1 ) ]]; then
+  if [[ -z "${MEDIA_DIR:-}" ]]; then
+    MEDIA_DIR="$WORKDIR"
+    EXTRA+=(-device virtio-serial-pci,id=media,addr=0x10)
+  fi
+  if [[ "${TEBOX_VDEC:-1}" == 1 ]]; then
+    mac_video_port vdec tebox.vdec
+    export TEBOX_VDEC_SOCK="$MAC_VIDEO_SOCK"
+    APPEND+=(androidboot.tebox.video_decode=1)
+    echo "vdec:    VideoToolbox (tebox.vdec, $TEBOX_VDEC_SOCK)"
+  fi
+  # With TEBOX_CAST=1 tebox.venc already goes to tebox-cast.
+  if [[ "${TEBOX_VENC:-1}" == 1 && "${TEBOX_CAST:-0}" != 1 ]]; then
+    mac_video_port venc tebox.venc
+    export TEBOX_VENC_SOCK="$MAC_VIDEO_SOCK"
+    APPEND+=(androidboot.tebox.video_encode=1)
+    echo "venc:    VideoToolbox (tebox.venc, $TEBOX_VENC_SOCK)"
+  fi
+fi
+
 echo "variant: $VARIANT"
 echo "kernel:  $KERNEL  ($KID)"
 echo "system:  $SYSTEM"
