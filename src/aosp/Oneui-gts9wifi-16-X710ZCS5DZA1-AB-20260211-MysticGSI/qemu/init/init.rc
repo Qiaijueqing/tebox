@@ -92,8 +92,15 @@ on early-init
     chmod 644 /linkerconfig/ld.config.txt
     chmod 644 /linkerconfig/default/ld.config.txt
     chmod 644 /linkerconfig/bootstrap/ld.config.txt
-    # Force GLES SkiaGL (threaded); default Graphite/Vulkan fails without Venus.
+    # RenderEngine follows the guest GPU: VirGL/Mesa has no guest Vulkan
+    # (Venus) and runs threaded SkiaGL; gfxstream exposes vulkan.ranchu and
+    # runs the threaded SkiaVK backend (matching HWUI skiavk). Final values
+    # are re-selected at early-boot by surfaceflinger.rc.
     setprop debug.renderengine.graphite 0
+    # Early defaults; early-boot surfaceflinger.rc re-selects the backend by
+    # guest GPU (skiaglthreaded/vulkan=0 for VirGL, skiavkthreaded/vulkan=1
+    # for gfxstream).
+    setprop debug.renderengine.backend skiaglthreaded
     setprop debug.renderengine.vulkan 0
     setprop ro.surface_flinger.supports_background_blur false
 

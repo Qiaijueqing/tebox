@@ -13,12 +13,13 @@
 # Rebuildable guest images (inputs: qemu/vendor, qemu/busybox, qemu/init, Mesa).
 src/aosp/*/images/vendor.img
 src/aosp/*/images/initramfs.img
-src/aosp/*/images/system.img
+src/aosp/*/images/system*.img
 src/kernel/*/gki/Image
 
 # Local host QEMU install (rebuildable via .ci/build-qemu.sh; 293MB incl. raw
 # edk2 firmware already tracked as .fd.bz2 under qemu/pc-bios/).
 /prebuilts/host/darwin-arm64/qemu/
+/prebuilts/host/linux-arm64/
 
 # Mesa build output (staging copy of prebuilts/android-arm64/mesa; rebuildable
 # via .ci/build-mesa-android.sh).

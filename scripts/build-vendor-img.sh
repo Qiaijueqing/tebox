@@ -32,6 +32,10 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -a "$STUB"/. "$STAGE"/
 
+find "$STAGE" -type f \( -name '*.rc' -o -name '*.xml' -o -name '*.txt' -o -name '*.prop' \) -exec chmod 644 {} +
+# find "$STAGE" -type d -exec chmod 755 {} +
+# chmod 755 "$STAGE"/bin/hw/* 2>/dev/null || true
+
 # Inject Mesa guest stack if prebuilts exist.
 if [[ -n "$MESA_PRE" ]]; then
   echo "injecting Mesa from $MESA_PRE"

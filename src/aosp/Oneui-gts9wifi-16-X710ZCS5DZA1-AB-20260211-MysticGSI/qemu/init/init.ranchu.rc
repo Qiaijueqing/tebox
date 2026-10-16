@@ -1,9 +1,11 @@
 on early-init
     setprop ro.hardware ranchu
-    # GPU backend from androidboot.tebox.gpu (HALs read ro.boot.tebox.gpu):
-    # virgl (Mesa) or gfxstream (ANGLE on the gfxstream Vulkan driver; see
-    # src/aosp/<variant>/GPU). The vendor props leave these unset so this is
-    # their only writer.
+    # RenderEngine/GPU backend from androidboot.tebox.gpu (HALs read
+    # ro.boot.tebox.gpu): virgl (Mesa) or gfxstream (ANGLE on the gfxstream
+    # Vulkan driver). RenderEngine must match: VirGL has no guest Vulkan
+    # (Venus), gfxstream runs it on vulkan.ranchu. The final values are
+    # (re-)written at early-boot by system/etc/init/surfaceflinger.rc
+    # (initramfs overlay); here keep the matching early defaults.
     setprop ro.hardware.egl ${ro.boot.hardwareegl:-mesa}
     setprop ro.opengles.version ${ro.boot.opengles.version:-196609}
     setprop ro.hardware.gralloc ${ro.boot.hardware.gralloc:-minigbm}
@@ -14,7 +16,7 @@ on early-init
     # no guest Vulkan: skiagl.
     setprop debug.hwui.renderer ${ro.boot.hwui.renderer:-skiagl}
     setprop ro.zygote zygote64
-    setprop debug.renderengine.backend skiaglthreaded
+    # Early default; early-boot surfaceflinger.rc re-selects by hwui renderer.
     setprop ro.vendor.build.version.sdk 36
     setprop ro.vendor.build.security_patch 2025-12-05
     setprop dalvik.vm.dex2oat64 true

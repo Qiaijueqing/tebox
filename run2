@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# Multi-instance launcher: same variant picker + ensure flow as ./run,
+# then boots N instances sequentially for stability testing.
+#
+# Usage:
+#   ./run2                    # menu; Enter picks default [1]
+#   ./run2 <variant> [count=6] [base_adb=5555]
+#   ./run2 <n> [count] [base_adb]   # menu index like ./run <n>
+#   VARIANT=... ./run2 [count] [base_adb]
+#
+# Defaults for this rig: VirGL path (no rutabaga) + snapshot userdata:
+#   FORCE_RUTABAGA=0 FORCE_VIRGL=1 SNAPSHOT=1
+# Override by exporting before calling, e.g. SNAPSHOT=0 ./run2 ...
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
+export FORCE_RUTABAGA="${FORCE_RUTABAGA:-0}"
+export FORCE_VIRGL="${FORCE_VIRGL:-1}"
+export SNAPSHOT="${SNAPSHOT:-1}"
+export GRAPHIC="${GRAPHIC:-1}"
+export MEM="${MEM:-3072}" SMP="${SMP:-4}"
+COUNT="${2:-6}"
+BASE_ADB="${3:-5555}"
+
+# Portable even on macOS /bin/bash 3.2 (no mapfile).
+VARIANTS=()
+while IFS= read -r name; do
+  [[ -n "$name" ]] && VARIANTS+=("$name")
+done <<EOF
+$(for d in "$ROOT"/src/aosp/*/; do
+    [[ -d "$d" ]] || continue
+    name="$(basename "$d")"
+    [[ -f "$d/KERNEL" ]] || continue
+    [[ -d "$d/images" || -d "$d/qemu" ]] || continue
+    printf '%s\n' "$name"
+  done | LC_ALL=C sort)
+EOF
+
+if ((${#VARIANTS[@]} == 0)); then
+  echo "no variants under src/aosp/*/ (need KERNEL + images|qemu)" >&2
+  exit 1
+fi
+
+pick=
+if [[ -n "${VARIANT:-}" ]]; then
+  pick="$VARIANT"
+elif (($# >= 1)); then
+  pick="$1"
+fi
+
+# Sole variant: no menu needed.
+if [[ -z "$pick" ]] && ((${#VARIANTS[@]} == 1)); then
+  pick="${VARIANTS[0]}"
+fi
+
+if [[ -z "$pick" ]] || [[ "$pick" =~ ^[0-9]+$ ]]; then
+  host="$(uname -s)/$(uname -m)"
+  echo
+  echo "You're building on $host"
+  echo
+  echo "Lunch menu... pick a combo:"
+  echo
+  i=1
+  default=1
+  for v in "${VARIANTS[@]}"; do
+    kid="$(tr -d '[:space:]' < "$ROOT/src/aosp/$v/KERNEL" 2>/dev/null || echo '?')"
+    gpu="$(tr -d '[:space:]' < "$ROOT/src/aosp/$v/GPU" 2>/dev/null || echo gfxstream)"
+    mark=
+    (( i == default )) && mark=" (default)"
+    printf '     %d. %s%s\n         kernel: %s  gpu: %s\n' "$i" "$v" "$mark" "$kid" "$gpu"
+    i=$((i + 1))
+  done
+  echo
+  if [[ -n "${pick:-}" && "$pick" =~ ^[0-9]+$ ]]; then
+    idx="$pick"
+  elif [[ ! -t 0 ]]; then
+    idx=$default
+    echo "Which would you like? [$default] $default (default)"
+  else
+    printf "Which would you like? [%d] " "$default"
+    read -r idx || true
+    [[ -z "${idx:-}" ]] && idx=$default
+  fi
+  if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 1 || idx > ${#VARIANTS[@]} )); then
+    echo "invalid selection: $idx" >&2
+    exit 1
+  fi
+  pick="${VARIANTS[$((idx - 1))]}"
+fi
+
+pick="${pick%/}"
+pick="${pick##*/}"
+
+ok=0
+for v in "${VARIANTS[@]}"; do
+  [[ "$v" == "$pick" ]] && ok=1 && break
+done
+if (( ok == 0 )); then
+  echo "unknown variant: $pick" >&2
+  echo "available:" >&2
+  printf '  %s\n' "${VARIANTS[@]}" >&2
+  exit 1
+fi
+
+export VARIANT="$pick"
+echo "==> lunch $VARIANT x$COUNT (base adb $BASE_ADB)"
+echo "==> env FORCE_RUTABAGA=$FORCE_RUTABAGA FORCE_VIRGL=$FORCE_VIRGL SNAPSHOT=$SNAPSHOT GRAPHIC=$GRAPHIC MEM=$MEM SMP=$SMP"
+
+# Same as run: ensure images once before launching N instances.
+if [[ -n "${SYSTEM_IMG:-}" && -n "${VENDOR_IMG:-}" && -n "${INITRD_IMG:-}" ]]; then
+  GUEST_SKIP_SYSTEM=1 bash "$ROOT/scripts/ensure-guest-downloads.sh" "$VARIANT"
+else
+  bash "$ROOT/scripts/ensure-guest-downloads.sh" "$VARIANT"
+  bash "$ROOT/scripts/ensure-runtime-imgs.sh" "$VARIANT"
+fi
+
+for ((i=0; i<COUNT; i++)); do
+  DIR="$ROOT/out/test-${VARIANT}-${i}"
+  ADB_PORT=$((BASE_ADB + i))
+  mkdir -p "$DIR"
+  echo "=== [$i/$COUNT] $DIR adb=$ADB_PORT ==="
+  TEBOX_INSTANCE_DIR="$DIR" \
+  ADB_PORT="$ADB_PORT" \
+  QMP_SOCKET="$DIR/qmp.sock" \
+  QMP_INPUT_SOCKET="$DIR/qmp-input.sock" \
+  QEMU_SERIAL="file:$DIR/serial.log" \
+  nohup bash "$ROOT/scripts/boot-qemu.sh" "$VARIANT" >"$DIR/qemu.log" 2>&1 &
+  echo "pid $! log $DIR/qemu.log"
+  for _ in $(seq 1 30); do
+    [[ -S "$DIR/qmp.sock" ]] && break
+    sleep 1
+  done
+  sleep 2
+done
+
+echo
+echo "Started $COUNT instances:"
+for ((i=0; i<COUNT; i++)); do
+  echo "  inst-$i  dir=out/test-${VARIANT}-${i}  adb=127.0.0.1:$((BASE_ADB+i))  log=out/test-${VARIANT}-${i}/qemu.log"
+done
+echo
+echo "Tail: tail -f out/test-${VARIANT}-0/qemu.log"
+echo "Stop: pkill -f boot-qemu.sh; pkill -f qemu-system-aarch64"
