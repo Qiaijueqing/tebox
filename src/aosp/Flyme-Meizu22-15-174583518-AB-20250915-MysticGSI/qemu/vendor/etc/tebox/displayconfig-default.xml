@@ -1,0 +1,4 @@
+<displayConfiguration>
+    <!-- tebox: densityMapping removed (Flyme maps 1080x2400 to 440 dpi);
+         DisplayManager then uses ro.sf.lcd_density (420). -->
+</displayConfiguration>

@@ -1,0 +1,16 @@
+VARIANT=Flyme-Meizu22-15-174583518-AB-20250915-MysticGSI
+GSI=Flyme MEIZU 22 15 (MysticGSI, A/B, 2025-09-15 build 174583518; meizu/Meizu_22_CN/Meizu22:15/AQ3A.250411.001)
+# system.img is a third-party Flyme GSI placed by hand under images/; it has
+# no pinned download in .ci/guest.lock.json. Digest: images/sha256sum.txt.
+# The vendor/HAL/runtime inputs below were copied from Originos-PD2266-15-compiler250711173629-AB-20260208-MysticGSI
+# (itself from the ColorOS variant).
+
+# system.img / vendor.img / initramfs.img — under images/:
+IMAGES=src/aosp/Flyme-Meizu22-15-174583518-AB-20250915-MysticGSI/images
+# packing inputs (vendor, busybox, init) — under qemu/:
+QEMU_RT=src/aosp/Flyme-Meizu22-15-174583518-AB-20250915-MysticGSI/qemu
+# GSI link libs — under prebuilts/:
+GSI_LIBS=src/aosp/Flyme-Meizu22-15-174583518-AB-20250915-MysticGSI/prebuilts/gsi-lib64
+# Kernel used by this variant (see KERNEL file → src/kernel/<id>/):
+KERNEL_ID=gki-6.1-android14-gsi
+KERNEL_FETCHED_FROM=../../kernel/gki-6.1-android14-gsi/FETCHED_FROM.txt

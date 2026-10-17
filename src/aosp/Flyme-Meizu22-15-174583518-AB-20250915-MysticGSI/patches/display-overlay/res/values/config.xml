@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The GSI overlay's only resource. -->
+    <string name="config_defaultDialer" translatable="false">com.android.dialer</string>
+    <!-- Flyme's framework-res: 130px corners and a punch hole, drawn as black
+         masks over this rectangular display. -->
+    <dimen name="rounded_corner_radius">0px</dimen>
+    <string name="config_mainBuiltInDisplayCutout" translatable="false"></string>
+    <string name="config_mainBuiltInDisplayCutoutRectApproximation" translatable="false"></string>
+</resources>

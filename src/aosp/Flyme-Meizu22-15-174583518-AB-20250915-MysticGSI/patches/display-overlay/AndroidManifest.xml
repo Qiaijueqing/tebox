@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same package, priority and target as the GSI's
+     /system/product/overlay/FrameworksResCommonQva_Sys.apk, which it replaces. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="android.qvaoverlay.common"
+    android:versionCode="35"
+    android:versionName="15"
+    coreApp="true">
+    <application android:hasCode="false" />
+    <overlay android:targetPackage="android" android:priority="300" android:isStatic="true" />
+</manifest>

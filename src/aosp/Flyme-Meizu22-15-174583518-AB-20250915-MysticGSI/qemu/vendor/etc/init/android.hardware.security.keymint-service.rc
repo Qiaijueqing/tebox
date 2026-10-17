@@ -1,0 +1,13 @@
+service vendor.keymint-default /vendor/bin/hw/android.hardware.security.keymint-service
+    class early_hal
+    user root
+    group root
+    console
+    seclabel u:r:hal_keymint_system:s0
+    # Android 15 system: the Android 16 keymaster libraries the soft KeyMint
+    # was built against (lib64/keymint) come before the system's older ones.
+    setenv LD_LIBRARY_PATH /vendor/lib64/keymint
+    setenv LD_PRELOAD /vendor/lib64/keymint/libbinder_ndk_compat.so
+    interface aidl android.hardware.security.keymint.IKeyMintDevice/default
+    interface aidl android.hardware.security.secureclock.ISecureClock/default
+    interface aidl android.hardware.security.sharedsecret.ISharedSecret/default
