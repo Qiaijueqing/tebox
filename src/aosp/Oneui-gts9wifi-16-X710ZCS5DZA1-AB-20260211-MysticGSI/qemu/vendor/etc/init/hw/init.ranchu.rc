@@ -1,0 +1,2 @@
+# Placeholder: the initramfs binds qemu/init/init.ranchu.rc here (imported as
+# init.${ro.hardware}.rc); this GSI has no /init.ranchu.rc at its read-only root.

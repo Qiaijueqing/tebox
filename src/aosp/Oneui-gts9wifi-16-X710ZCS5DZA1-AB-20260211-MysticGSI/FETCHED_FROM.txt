@@ -1,0 +1,15 @@
+VARIANT=Oneui-gts9wifi-16-X710ZCS5DZA1-AB-20260211-MysticGSI
+GSI=OneUI 16 gts9wifi (MysticGSI, A/B, 2026-02-11 build X710ZCS5DZA1; samsung/gts9wifizc/qssi:16/BP2A.250605.031.A3)
+# system.img is a third-party OneUI GSI placed by hand under images/; it has
+# no pinned download in .ci/guest.lock.json. Digest: images/sha256sum.txt.
+# The vendor/HAL/runtime inputs below were copied from Coloros-OP64DDL1-16-1769698117230-AB-20260315-MysticGSI.
+
+# system.img / vendor.img / initramfs.img — under images/:
+IMAGES=src/aosp/Oneui-gts9wifi-16-X710ZCS5DZA1-AB-20260211-MysticGSI/images
+# packing inputs (vendor, busybox, init) — under qemu/:
+QEMU_RT=src/aosp/Oneui-gts9wifi-16-X710ZCS5DZA1-AB-20260211-MysticGSI/qemu
+# GSI link libs — under prebuilts/:
+GSI_LIBS=src/aosp/Oneui-gts9wifi-16-X710ZCS5DZA1-AB-20260211-MysticGSI/prebuilts/gsi-lib64
+# Kernel used by this variant (see KERNEL file → src/kernel/<id>/):
+KERNEL_ID=gki-6.1-android14-gsi
+KERNEL_FETCHED_FROM=../../kernel/gki-6.1-android14-gsi/FETCHED_FROM.txt

@@ -1,0 +1,329 @@
+#include <algorithm>
+/*
+ * Soft Health HAL stub for GKI+QEMU bring-up (NDK AIDL v3).
+ * Always-present AC-powered "battery" so BatteryService / system_server can boot.
+ */
+
+#include <android/binder_manager.h>
+#include <android/binder_process.h>
+#include <android/binder_stability.h>
+#include <android/log.h>
+
+#include <aidl/android/hardware/health/BatteryCapacityLevel.h>
+#include <aidl/android/hardware/health/BatteryChargingPolicy.h>
+#include <aidl/android/hardware/health/BatteryChargingState.h>
+#include <aidl/android/hardware/health/BatteryHealth.h>
+#include <aidl/android/hardware/health/BatteryHealthData.h>
+#include <aidl/android/hardware/health/BatteryStatus.h>
+#include <aidl/android/hardware/health/BnHealth.h>
+#include <aidl/android/hardware/health/DiskStats.h>
+#include <aidl/android/hardware/health/HealthInfo.h>
+#include <aidl/android/hardware/health/IHealthInfoCallback.h>
+#include <aidl/android/hardware/health/StorageInfo.h>
+
+#include <cstdio>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#define LOG_TAG "health-stub"
+
+#define ALOGI(...)                                                                 \
+    do {                                                                           \
+        __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__);               \
+        fprintf(stderr, "health-stub I: ");                                        \
+        fprintf(stderr, __VA_ARGS__);                                              \
+        fprintf(stderr, "\n");                                                     \
+    } while (0)
+#define ALOGE(...)                                                                 \
+    do {                                                                           \
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__);              \
+        fprintf(stderr, "health-stub E: ");                                        \
+        fprintf(stderr, __VA_ARGS__);                                              \
+        fprintf(stderr, "\n");                                                     \
+    } while (0)
+
+using namespace aidl::android::hardware::health;
+using ndk::ScopedAStatus;
+using ndk::SharedRefBase;
+
+namespace {
+
+HealthInfo makeInfo() {
+    HealthInfo info;
+    info.chargerAcOnline = true;
+    info.chargerUsbOnline = false;
+    info.chargerWirelessOnline = false;
+    info.chargerDockOnline = false;
+    info.maxChargingCurrentMicroamps = 500000;
+    info.maxChargingVoltageMicrovolts = 5000000;
+    // Plugged in at 100 %: FULL, as on a phone. CHARGING forever makes
+    // ColorOS suggest battery protection (charge limit 80 %).
+    info.batteryStatus = BatteryStatus::FULL;
+    info.batteryHealth = BatteryHealth::GOOD;
+    info.batteryPresent = true;
+    info.batteryLevel = 100;
+    info.batteryVoltageMillivolts = 4200;
+    info.batteryTemperatureTenthsCelsius = 250;
+    info.batteryCurrentMicroamps = 0;
+    info.batteryCycleCount = 0;
+    info.batteryFullChargeUah = 4000000;
+    info.batteryChargeCounterUah = 4000000;
+    info.batteryTechnology = "Li-ion";
+    info.batteryCurrentAverageMicroamps = 0;
+    info.batteryCapacityLevel = BatteryCapacityLevel::FULL;
+    info.batteryChargeTimeToFullNowSeconds =
+            HealthInfo::BATTERY_CHARGE_TIME_TO_FULL_NOW_SECONDS_UNSUPPORTED;
+    info.batteryFullChargeDesignCapacityUah = 4000000;
+    info.chargingState = BatteryChargingState::NORMAL;
+    info.chargingPolicy = BatteryChargingPolicy::DEFAULT;
+    return info;
+}
+
+class StubHealth : public BnHealth {
+  public:
+    ScopedAStatus registerCallback(const std::shared_ptr<IHealthInfoCallback>& cb) override {
+        if (!cb) {
+            return ScopedAStatus::fromExceptionCode(EX_NULL_POINTER);
+        }
+        ALOGI("registerCallback");
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            callbacks_.push_back(cb);
+        }
+        // Push an immediate update so BatteryService does not wait.
+        auto st = cb->healthInfoChanged(makeInfo());
+        if (!st.isOk()) {
+            ALOGE("initial healthInfoChanged failed: %s", st.getDescription().c_str());
+        }
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus unregisterCallback(const std::shared_ptr<IHealthInfoCallback>& cb) override {
+        if (!cb) {
+            return ScopedAStatus::fromExceptionCode(EX_NULL_POINTER);
+        }
+        std::lock_guard<std::mutex> lock(mu_);
+        auto it = callbacks_.begin();
+        bool found = false;
+        while (it != callbacks_.end()) {
+            if (*it == cb) {
+                it = callbacks_.erase(it);
+                found = true;
+            } else {
+                ++it;
+            }
+        }
+        if (!found) {
+            return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+        }
+        ALOGI("unregisterCallback");
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus update() override {
+        ALOGI("update");
+        HealthInfo info = makeInfo();
+        std::vector<std::shared_ptr<IHealthInfoCallback>> copy;
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            copy = callbacks_;
+        }
+        // Like the reference HAL: drop callbacks that fail, but the update
+        // itself succeeds (frameworks such as ColorOS do not catch an error
+        // from update() during BatteryService start).
+        for (auto& cb : copy) {
+            auto st = cb->healthInfoChanged(info);
+            if (st.isOk()) continue;
+            ALOGE("healthInfoChanged failed, dropping callback: %s", st.getDescription().c_str());
+            std::lock_guard<std::mutex> lock(mu_);
+            callbacks_.erase(std::remove(callbacks_.begin(), callbacks_.end(), cb), callbacks_.end());
+        }
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getChargeCounterUah(int32_t* out) override {
+        *out = 4000000;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getCurrentNowMicroamps(int32_t* out) override {
+        *out = 0;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getCurrentAverageMicroamps(int32_t* out) override {
+        *out = 0;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getCapacity(int32_t* out) override {
+        *out = 100;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getEnergyCounterNwh(int64_t* out) override {
+        *out = 15000000;  // nanowatt-hours, roughly consistent with µAh*mV
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getChargeStatus(BatteryStatus* out) override {
+        *out = BatteryStatus::CHARGING;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getStorageInfo(std::vector<StorageInfo>* out) override {
+        out->clear();
+        return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
+
+    ScopedAStatus getDiskStats(std::vector<DiskStats>* out) override {
+        out->clear();
+        return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
+
+    ScopedAStatus getHealthInfo(HealthInfo* out) override {
+        *out = makeInfo();
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus setChargingPolicy(BatteryChargingPolicy value) override {
+        ALOGI("setChargingPolicy %d", static_cast<int>(value));
+        policy_ = value;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getChargingPolicy(BatteryChargingPolicy* out) override {
+        *out = policy_;
+        return ScopedAStatus::ok();
+    }
+
+    ScopedAStatus getBatteryHealthData(BatteryHealthData* out) override {
+        out->batteryManufacturingDateSeconds = 0;
+        out->batteryFirstUsageSeconds = 0;
+        out->batteryStateOfHealth = 100;
+        out->batterySerialNumber = std::nullopt;
+        return ScopedAStatus::ok();
+    }
+
+  private:
+    std::mutex mu_;
+    std::vector<std::shared_ptr<IHealthInfoCallback>> callbacks_;
+    BatteryChargingPolicy policy_ = BatteryChargingPolicy::DEFAULT;
+};
+
+// OneUI: Samsung's BatteryService takes vendor.samsung.hardware.health.
+// ISehHealth from this binder's extension and dereferences it unchecked, then
+// gets its battery data only through ISehHealthInfoCallback (not the AOSP
+// IHealthInfoCallback); without either system_server crash-loops at boot.
+// registerCallback/update push makeInfo() as SehHealthInfo.aospHealthInfo
+// (Samsung's extra fields keep their defaults); other calls are "not
+// implemented", which Samsung's callers handle as a RemoteException.
+// Codes and layout from Samsung's services.jar (ISehHealth, SehHealthInfo).
+constexpr char kSehHealthDescriptor[] = "vendor.samsung.hardware.health.ISehHealth";
+constexpr char kSehCallbackDescriptor[] = "vendor.samsung.hardware.health.ISehHealthInfoCallback";
+constexpr transaction_code_t kSehRegisterCallback = FIRST_CALL_TRANSACTION + 0;
+constexpr transaction_code_t kSehUnregisterCallback = FIRST_CALL_TRANSACTION + 1;
+constexpr transaction_code_t kSehUpdate = FIRST_CALL_TRANSACTION + 2;
+constexpr transaction_code_t kSehHealthInfoChanged = FIRST_CALL_TRANSACTION + 0;
+
+std::mutex gSehMu;
+std::vector<ndk::SpAIBinder> gSehCallbacks;
+
+void* sehOnCreate(void* args) { return args; }
+void sehOnDestroy(void*) {}
+binder_status_t sehCallbackOnTransact(AIBinder*, transaction_code_t, const AParcel*, AParcel*) {
+    return STATUS_UNKNOWN_TRANSACTION;
+}
+AIBinder_Class* sehCallbackClass() {
+    static AIBinder_Class* cls = AIBinder_Class_define(kSehCallbackDescriptor, sehOnCreate,
+                                                       sehOnDestroy, sehCallbackOnTransact);
+    return cls;
+}
+
+// healthInfoChanged(in SehHealthInfo): a non-null stable parcelable holding
+// only its first field, the AOSP HealthInfo.
+void sendHealthInfo(const ndk::SpAIBinder& callback) {
+    AParcel* in = nullptr;
+    if (AIBinder_prepareTransaction(callback.get(), &in) != STATUS_OK) return;
+    AParcel_writeInt32(in, 1);  // non-null
+    const int32_t start = AParcel_getDataPosition(in);
+    AParcel_writeInt32(in, 0);  // size, patched below
+    AParcel_writeInt32(in, 1);  // aospHealthInfo: non-null
+    makeInfo().writeToParcel(in);
+    const int32_t end = AParcel_getDataPosition(in);
+    AParcel_setDataPosition(in, start);
+    AParcel_writeInt32(in, end - start);
+    AParcel_setDataPosition(in, end);
+    AParcel* out = nullptr;
+    const binder_status_t st =
+            AIBinder_transact(callback.get(), kSehHealthInfoChanged, &in, &out, FLAG_ONEWAY);
+    if (out) AParcel_delete(out);
+    if (st != STATUS_OK) ALOGE("ISehHealthInfoCallback.healthInfoChanged: %d", st);
+}
+
+binder_status_t writeOk(AParcel* out) {
+    AStatus* ok = AStatus_newOk();
+    const binder_status_t st = AParcel_writeStatusHeader(out, ok);
+    AStatus_delete(ok);
+    return st;
+}
+
+binder_status_t sehOnTransact(AIBinder*, transaction_code_t code, const AParcel* in, AParcel* out) {
+    if (code == kSehRegisterCallback || code == kSehUnregisterCallback) {
+        AIBinder* raw = nullptr;
+        if (AParcel_readStrongBinder(in, &raw) != STATUS_OK || !raw) return STATUS_BAD_VALUE;
+        ndk::SpAIBinder callback(raw);
+        AIBinder_associateClass(callback.get(), sehCallbackClass());
+        {
+            std::lock_guard<std::mutex> lock(gSehMu);
+            auto& cbs = gSehCallbacks;
+            cbs.erase(std::remove_if(cbs.begin(), cbs.end(),
+                                     [&](const ndk::SpAIBinder& b) { return b.get() == raw; }),
+                      cbs.end());
+            if (code == kSehRegisterCallback) cbs.push_back(callback);
+        }
+        if (code == kSehRegisterCallback) sendHealthInfo(callback);
+        return writeOk(out);
+    }
+    if (code == kSehUpdate) {
+        std::vector<ndk::SpAIBinder> cbs;
+        {
+            std::lock_guard<std::mutex> lock(gSehMu);
+            cbs = gSehCallbacks;
+        }
+        for (const auto& cb : cbs) sendHealthInfo(cb);
+        return writeOk(out);
+    }
+    return STATUS_UNKNOWN_TRANSACTION;
+}
+
+}  // namespace
+
+int main() {
+    ALOGI("starting soft Health HAL (IHealth v3)");
+    ABinderProcess_setThreadPoolMaxThreadCount(1);
+    ABinderProcess_startThreadPool();
+
+    auto svc = SharedRefBase::make<StubHealth>();
+    AIBinder_Class* sehClass = AIBinder_Class_define(kSehHealthDescriptor,
+                                                     sehOnCreate, sehOnDestroy, sehOnTransact);
+    AIBinder* seh = AIBinder_new(sehClass, nullptr);
+    AIBinder_markVintfStability(seh);
+    // ICInterface keeps only a weak reference to its binder: hold this one so
+    // the binder registered below is the one carrying the extension.
+    ndk::SpAIBinder binder = svc->asBinder();
+    if (AIBinder_setExtension(binder.get(), seh) != STATUS_OK) {
+        ALOGE("cannot attach the ISehHealth extension");
+    }
+    const char* instance = "android.hardware.health.IHealth/default";
+    binder_status_t st = AServiceManager_addService(binder.get(), instance);
+    if (st != STATUS_OK) {
+        ALOGE("addService %s failed: %d", instance, st);
+        return 1;
+    }
+    ALOGI("registered %s", instance);
+    ABinderProcess_joinThreadPool();
+    return 1;
+}
