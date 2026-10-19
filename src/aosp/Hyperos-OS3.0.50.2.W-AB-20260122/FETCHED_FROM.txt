@@ -1,0 +1,11 @@
+VARIANT=Hyperos-OS3.0.50.2.W-AB-20260122
+GSI=HyperOS OS3.0.50.2.W (A/B, 2026-01-22)
+# system.img is an external HyperOS GSI fetched through images/system.url.
+# This variant contains ROM adapter/runtime files only; no system image is committed.
+# The vendor/HAL/runtime inputs below were copied from the AOSP baseline.
+
+IMAGES=src/aosp/Hyperos-OS3.0.50.2.W-AB-20260122/images
+QEMU_RT=src/aosp/Hyperos-OS3.0.50.2.W-AB-20260122/qemu
+GSI_LIBS=src/aosp/Hyperos-OS3.0.50.2.W-AB-20260122/prebuilts/gsi-lib64
+KERNEL_ID=gki-6.1-android14-gsi
+KERNEL_FETCHED_FROM=../../kernel/gki-6.1-android14-gsi/FETCHED_FROM.txt
