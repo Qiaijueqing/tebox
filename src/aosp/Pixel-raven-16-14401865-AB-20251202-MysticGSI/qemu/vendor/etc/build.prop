@@ -1,4 +1,6 @@
 ro.hardware=ranchu
+# Boot straight to the launcher: skip the GSI/Pixel first-boot setup wizard.
+ro.setupwizard.mode=DISABLED
 # This QEMU device runs a single 64-bit zygote.
 ro.zygote=zygote64
 ro.product.cpu.abilist=arm64-v8a

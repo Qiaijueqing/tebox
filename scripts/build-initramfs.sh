@@ -193,19 +193,36 @@ if [ -f /system-overlay.list ]; then
   done < /system-overlay.list
 fi
 
-# GSI ships ro.adb.secure=1 (RSA dialog). For loopback TCP ADB, force insecure
-# adbd before second-stage init loads /system/build.prop.
-if grep -q 'androidboot.qemu_adb=1' /proc/cmdline 2>/dev/null && \
-   [ -f /newroot/system/build.prop ]; then
-  awk '
-    BEGIN { done=0 }
-    /^ro\.adb\.secure=/ { print "ro.adb.secure=0"; done=1; next }
+# Rewrite the GSI's read-only build.prop files before second-stage init loads
+# them (bind mount, system.img stays untouched). Init loads property files in
+# partition order and later ones override earlier ones (/product/etc is last),
+# so every file that might define these keys is patched:
+#  - ro.setupwizard.mode=DISABLED: boot straight to the launcher, no GSI/Pixel
+#    first-boot wizard. Forced here as well as in the vendor build.prop.
+#  - ro.adb.secure=0 with androidboot.qemu_adb=1: loopback TCP ADB, no RSA.
+adb_off=0
+grep -q 'androidboot.qemu_adb=1' /proc/cmdline 2>/dev/null && adb_off=1
+patch_prop(){
+  src=$1 ovl=$2
+  [ -f "$src" ] || return 0
+  awk -v adb_off="$adb_off" '
+    BEGIN { adb_done=0; sw_done=0 }
+    adb_off && /^ro\.adb\.secure=/ { print "ro.adb.secure=0"; adb_done=1; next }
+    /^ro\.setupwizard\.mode=/ { print "ro.setupwizard.mode=DISABLED"; sw_done=1; next }
     { print }
-    END { if (!done) print "ro.adb.secure=0" }
-  ' /newroot/system/build.prop > /overlays/system.build.prop
-  mount -o bind /overlays/system.build.prop /newroot/system/build.prop && \
-    echo "[init] adb auth off (ro.adb.secure=0)"
-fi
+    END {
+      if (adb_off && !adb_done) print "ro.adb.secure=0"
+      if (!sw_done) print "ro.setupwizard.mode=DISABLED"
+    }
+  ' "$src" > "/overlays/$ovl"
+  mount -o bind "/overlays/$ovl" "$src" && \
+    echo "[init] patched $src (setupwizard off, adb_off=$adb_off)"
+}
+patch_prop /newroot/system/build.prop system.build.prop
+# /product and /system_ext are symlinks ("/system/product", "/system/system_ext")
+# that only resolve after switch_root, so patch the real files here.
+patch_prop /newroot/system/product/etc/build.prop product.build.prop
+patch_prop /newroot/system/system_ext/build.prop system_ext.build.prop
 
 mkdir -p /newroot/proc /newroot/sys /newroot/dev
 mount -o bind /proc /newroot/proc

@@ -47,6 +47,12 @@ on property:sys.boot_completed=1
     # settings is a shell script, not an init service executable. Use the shell
     # domain explicitly so init can launch it and the plugged-in VM stays awake.
     exec_background u:r:shell:s0 shell shell -- /system/bin/sh /system/bin/settings put global stay_on_while_plugged_in 1
+    # First-boot provisioning: ro.setupwizard.mode=DISABLED (vendor prop +
+    # initramfs patch of /system/build.prop) keeps the wizard from appearing.
+    # Mark the user as provisioned anyway so GMS/launcher never re-enter the
+    # new-device flow on a fresh /data.
+    exec_background u:r:shell:s0 shell shell -- /system/bin/sh /system/bin/settings put global device_provisioned 1
+    exec_background u:r:shell:s0 shell shell -- /system/bin/sh /system/bin/settings put secure user_setup_complete 1
     # PackageManager disables the stock launcher alias on first boot. Re-enable
     # it after boot so the Camera2 app is discoverable from the Launcher.
     start camera_launcher_enable

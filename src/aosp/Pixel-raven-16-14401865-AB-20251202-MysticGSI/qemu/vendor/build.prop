@@ -3,6 +3,11 @@ ro.hardware=ranchu
 # bring-up transport usable without an interactive RSA confirmation.
 ro.adb.secure=0
 ro.debuggable=1
+# QEMU bring-up boots straight to the launcher: skip the GSI/Pixel
+# first-boot setup wizard. Vendor build.prop loads after the GSI's, so this
+# overrides the system default; the initramfs also forces this line into
+# /system/build.prop for wizards that read it before vendor props settle.
+ro.setupwizard.mode=DISABLED
 # This QEMU device runs a single 64-bit zygote.
 ro.zygote=zygote64
 ro.product.cpu.abilist=arm64-v8a
