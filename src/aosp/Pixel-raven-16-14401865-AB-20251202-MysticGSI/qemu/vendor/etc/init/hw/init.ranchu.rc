@@ -1,0 +1,16 @@
+# Placeholder: the initramfs binds the clean init.ranchu.rc here.
+# The GSI has no /init.ranchu.rc (ro.hardware is the device name there), so
+# this vendor file is the anchor the initramfs overlays with the full
+# qemu/init/init.ranchu.rc (GPU props, adb, weston debug shell, refresh Hz).
+
+on early-init
+    setprop ro.hardware ranchu
+    setprop ro.zygote zygote64
+    # debug.renderengine.backend is picked at early-boot by the initramfs
+    # surfaceflinger.rc overlay, following the guest GPU.
+
+on early-boot
+    start vendor.health-default
+
+on boot
+    start vendor.health-default

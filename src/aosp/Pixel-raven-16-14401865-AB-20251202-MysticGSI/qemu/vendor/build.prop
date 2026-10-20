@@ -1,0 +1,40 @@
+ro.hardware=ranchu
+# The launcher exposes ADB only on the loopback TCP forward.  Keep the
+# bring-up transport usable without an interactive RSA confirmation.
+ro.adb.secure=0
+ro.debuggable=1
+# This QEMU device runs a single 64-bit zygote.
+ro.zygote=zygote64
+ro.product.cpu.abilist=arm64-v8a
+ro.product.cpu.abilist64=arm64-v8a
+ro.product.cpu.abilist32=
+persist.sys.glamor=1
+# RenderEngine backend/vulkan are set at boot (init.rc early-init, then
+# surfaceflinger.rc at early-boot) according to the guest GPU; keep them out
+# of static props so the rutabaga path can select skiavkthreaded+vulkan=1.
+ro.surface_flinger.supports_background_blur=false
+
+ro.sf.lcd_density=420
+debug.hwui.renderer=skiagl
+
+# Dual-SIM soft radio (slot1 T-Mobile US 5G, slot2 Vodafone DE 4G).
+persist.radio.multisim.config=dsds
+ro.telephony.sim.count=2
+# Stable line-1 values used by telephony when the virtual SIM has no EF-MSISDN.
+persist.radio.sim1.number=+8613800138000
+persist.radio.sim2.number=+8613900139000
+persist.radio.line1.number=+8613800138000
+persist.radio.line2.number=+8613900139000
+ro.vendor.api_level=202404
+
+# Soft WiFi HAL chip country (US).
+ro.wifi.channels=
+wifi.interface=wlan0
+
+# Device heap configuration for the default 4 GiB QEMU guest.
+dalvik.vm.heapstartsize=16m
+dalvik.vm.heapgrowthlimit=256m
+dalvik.vm.heapsize=512m
+dalvik.vm.heaptargetutilization=0.75
+dalvik.vm.heapminfree=2m
+dalvik.vm.heapmaxfree=8m

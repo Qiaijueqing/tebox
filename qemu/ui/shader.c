@@ -91,7 +91,7 @@ static GLuint qemu_gl_create_compile_shader(GLenum type, const GLchar *src)
     if (epoxy_is_desktop_gl()) {
         /* Apple's core GL lacks the ES shader compatibility extension. */
         const GLchar *desktop_src[] = {
-            "#version 150\n#define mediump\n#define highp\n#define lowp\n",
+            "#version 140\n#define mediump\n#define highp\n#define lowp\n",
             strchr(src, '\n') + 1,
         };
         glShaderSource(shader, G_N_ELEMENTS(desktop_src), desktop_src, NULL);

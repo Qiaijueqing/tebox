@@ -155,8 +155,7 @@ if [ -f /overlays/init.ranchu.rc ]; then
   fi
 fi
 if [ -f /overlays/android.hardware.security.keymint-service.rc ]; then
-  mount -o bind /overlays/android.hardware.security.keymint-service.rc \
-    /newroot/system/etc/init/android.hardware.security.keymint-service.rc && \
+  mount -o bind /overlays/android.hardware.security.keymint-service.rc /newroot/system/etc/init/android.hardware.security.keymint-service.rc && \
     echo "[init] neutralized system keymint rc"
 fi
 if [ -f /overlays/keystore2.rc ]; then

@@ -1,0 +1,28 @@
+# RenderEngine backend follows the guest GPU (boot-qemu.sh injects
+# androidboot.hwui.renderer: skiavk for gfxstream/rutabaga, skiagl for
+# VirGL/Mesa). gfxstream exposes a guest Vulkan (vulkan.ranchu/ANGLE);
+# skiaglthreaded+vulkan=0 makes SF compose gfxstream buffers with Mesa DRI
+# and dies on the blur surface.
+on early-boot && property:ro.boot.hwui.renderer=skiavk
+    setprop debug.renderengine.backend skiavkthreaded
+    setprop debug.renderengine.graphite 0
+    setprop debug.renderengine.vulkan 1
+
+on early-boot && property:ro.boot.hwui.renderer=skiagl
+    setprop debug.renderengine.backend skiaglthreaded
+    setprop debug.renderengine.graphite 0
+    setprop debug.renderengine.vulkan 0
+
+on early-boot
+    setprop debug.renderengine.graphite 0
+
+service surfaceflinger /system/bin/surfaceflinger
+    class core animation
+    user system
+    group graphics drmrpc readproc
+    capabilities SYS_NICE
+    onrestart restart --only-if-running zygote
+    task_profiles HighPerformance
+    console
+    setenv LIBGL_DRIVERS_PATH /vendor/lib64/dri
+    setenv EGL_PLATFORM android

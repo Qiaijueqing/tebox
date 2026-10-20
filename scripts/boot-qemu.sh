@@ -338,7 +338,7 @@ exec "$QEMU_BIN" \
   -machine virt,gic-version=3 \
   -cpu "$CPU" \
   -accel "$ACCEL" \
-  -m "${MEM:-4096}" \
+  -m "${MEM:-3072}" \
   -smp "${SMP:-4}" \
   -kernel "$KERNEL" \
   "${EXTRA[@]}" \

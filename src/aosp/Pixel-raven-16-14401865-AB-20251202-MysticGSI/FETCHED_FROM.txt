@@ -1,0 +1,22 @@
+VARIANT=Pixel-raven-16-14401865-AB-20251202-MysticGSI
+BUILD_ID=BP4A.251205.006
+INCREMENTAL=14401865
+FINGERPRINT=google/raven/raven:16/BP4A.251205.006/14401865:user/release-keys
+TARGET=raven-user (Pixel 6 Pro device system image, Treble GSI-compatible)
+ANDROID=16
+SDK=36
+
+# system.img / vendor.img / initramfs.img — under images/:
+IMAGES=src/aosp/Pixel-raven-16-14401865-AB-20251202-MysticGSI/images
+# packing inputs (vendor, busybox, init) — under qemu/:
+QEMU_RT=src/aosp/Pixel-raven-16-14401865-AB-20251202-MysticGSI/qemu
+# GSI link libs — under prebuilts/:
+GSI_LIBS=src/aosp/Pixel-raven-16-14401865-AB-20251202-MysticGSI/prebuilts/gsi-lib64
+GSI_SOURCE=Mystic GSI Updates (SourceForge): Pixel-raven-16-14401865-AB-20251202-MysticGSI.zip
+# Shipped as local zip at src/aosp/Pixel-raven-16-14401865-AB-20251202-MysticGSI.zip,
+# unzipped to images/system.img (raw ext4, no simg2img needed), then:
+#   bash scripts/extract-gsi-libs.sh Pixel-raven-16-14401865-AB-20251202-MysticGSI
+
+# Kernel used by this variant (see KERNEL file → src/kernel/<id>/):
+KERNEL_ID=gki-6.1-android14-gsi
+KERNEL_FETCHED_FROM=../../kernel/gki-6.1-android14-gsi/FETCHED_FROM.txt
